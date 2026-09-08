@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# Stub distribution named "odoo". The official deb installs Odoo via
+# dpkg (no pip metadata), so odoo-addon-* packages would otherwise make
+# pip download an "odoo" package from PyPI. This empty stub satisfies
+# the dependency resolver. It ships NO odoo module on purpose.
+[project]
+name = "odoo"
+version = "@ODOO_VERSION@"
+description = "Stub marking the deb-installed Odoo for pip (odoo-bedrock)"
+
+[tool.setuptools]
+py-modules = ["_odoo_deb_stub"]

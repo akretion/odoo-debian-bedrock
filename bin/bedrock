@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# odoo-bedrock orchestrator. Run as root on Debian 13 / Ubuntu 24.04+.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+WITH_DOCKER=0
+for arg in "$@"; do
+  case "$arg" in
+    --with-docker) WITH_DOCKER=1 ;;
+    --help|-h) grep '^#' "$0"; exit 0 ;;
+    *) echo "unknown arg: $arg" >&2; exit 1 ;;
+  esac
+done
+
+: "${ODOO_VERSION:=18.0}"
+: "${ODOO_ADMIN_PASSWD:=$(openssl rand -hex 16)}"
+: "${OCA_ADDONS:=}"
+export ODOO_VERSION ODOO_ADMIN_PASSWD OCA_ADDONS
+
+run() { echo "=== bedrock: $1 ==="; bash "scripts/$1"; }
+
+run 10-base.sh
+run 20-postgres.sh
+run 30-odoo-deb.sh
+run 40-oca-venv.sh
+run 50-nginx.sh
+run 60-backup.sh
+[ "$WITH_DOCKER" = 1 ] && run 70-docker.sh
+
+echo "=== bedrock done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ==="
