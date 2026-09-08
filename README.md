@@ -193,6 +193,48 @@ Key design points:
   (one core per host): for that, add a source clone to that instance's
   addons_path and point its unit at odoo-bin (see "Patching Odoo core").
 
+## Docker + host Postgres (layer 2)
+
+A docky/docker-compose project on a bedrock host should reach the HOST
+postgres over TCP — not by mounting the socket. Why:
+
+- **Peer auth breaks across the socket.** The container's odoo uid doesn't
+  match the host's postgres user, so peer auth on a mounted socket fails;
+  you end up loosening to trust just to make it work.
+- **Monitoring attribution.** TCP connections appear in pg_stat_activity
+  with the real user/db; a socket-mounted setup collapses everything to
+  one local connection.
+- **No socket-dir coupling.** TCP keeps working regardless of
+  `unix_socket_directories`, container images, or where PG moves later.
+
+`70-docker.sh` already prepares the host when you install with
+`--with-docker`: postgres listens on `*` and pg_hba allows the docker
+bridge subnet (172.16.0.0/12) with scram-sha-256. External 5432 stays
+closed by ufw (10-base.sh) and the pg_hba scoping — so `*` is not an
+open door.
+
+Per project, create a role + database:
+
+```bash
+DB_NAME=myproj DB_PASSWORD=<secret> \
+  sudo -E bash /opt/odoo-debian-bedrock/scripts/72-pg-docker-user.sh
+```
+
+Then in the project's docker-compose/docky config, point Odoo at the
+host via the bridge gateway (Linux docker doesn't auto-provide
+`host.docker.internal`, so add it explicitly):
+
+```yaml
+services:
+  odoo:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DB_HOST: host.docker.internal
+      DB_USER: myproj
+      DB_PASSWORD: ${DB_PASSWORD}
+```
+
 ## CI
 
 GitHub Actions (.github/workflows/ci.yml) runs on every push:
