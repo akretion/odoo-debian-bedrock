@@ -23,6 +23,14 @@ python3 -m venv --system-site-packages "$VENV"
 # where it's guaranteed and shadow-safe.
 "$VENV/bin/pip" install -q packaging
 
+# Odoo 16 imports `lxml.html.clean`, which was split out of lxml 5.2+
+# into lxml_html_clean. Older distros (jammy/bookworm) still ship the
+# bundled path, so only act when the import is actually missing.
+if ! "$VENV/bin/python3" -c "import lxml.html.clean" 2>/dev/null; then
+  apt-get install -y -qq python3-lxml-html-clean 2>/dev/null || \
+    "$VENV/bin/pip" install -q lxml_html_clean || true
+fi
+
 # The deb ships no pip metadata, so odoo-addon-* would try to pull an
 # "odoo" package from PyPI. Install an empty stub dist named "odoo"
 # with the matching series version to satisfy the resolver.
@@ -38,11 +46,14 @@ if [ -n "$OCA_ADDONS" ]; then
   "$VENV/bin/pip" install $OCA_ADDONS
 fi
 
-# The l10n-brazil chain can pull a newer cryptography than the distro's
-# python3-pyopenssl declares. Since the venv shadows dist-packages, just
-# upgrade the affected packages inside the venv:
-"$VENV/bin/pip" check -q 2>/dev/null || \
-  "$VENV/bin/pip" install -q --upgrade pyopenssl greenlet || true
+# gevent (longpolling/websocket) wants greenlet>=3.1.1; the distro one
+# may lag. greenlet has no deps, so this is safe.
+# Deliberately NOT upgrading pyopenssl/cryptography here: a newer
+# cryptography shadows the distro one and breaks the older urllib3
+# (1.26 on jammy/bookworm), whose contrib/pyopenssl still imports a
+# `cryptography` path removed in 37+. Heavy chains that truly need a
+# newer cryptography (l10n-brazil + signxml) must pin explicitly.
+"$VENV/bin/pip" install -q --upgrade greenlet 2>/dev/null || true
 
 # NOTE: running module tests additionally needs test-only deps that
 # odoo-addon-* doesn't declare, e.g.: pip install xmldiff vcrpy
