@@ -69,8 +69,34 @@ export ODOO_VERSION=18.0          # odoo series to install
 export ODOO_ADMIN_PASSWD=...      # odoo master password (random if unset)
 export OCA_ADDONS="odoo-addon-l10n_br_base odoo-addon-l10n_br_fiscal"
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
+export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
 ```
+
+## Compatibility matrix
+
+What the official deb + bedrock overlay support, per distro Python
+(Odoo 19+ needs Python >= 3.12; the deb resolves the rest):
+
+| Distro                    | Python | Odoo 16 | 17 | 18 | 19 | 20 |
+|---------------------------|--------|---------|----|----|----|----|
+| Debian 12 (bookworm)      | 3.11   | OK      | OK | OK | -- | -- |
+| Debian 13 (trixie)        | 3.13   | ??      | ?? | OK | OK | OK |
+| Ubuntu 22.04 LTS (jammy)  | 3.10   | OK      | OK | OK | -- | -- |
+| Ubuntu 24.04 LTS (noble)  | 3.12   | OK      | OK | OK | OK | OK |
+
+Notes:
+
+- "OK" on 18/trixie is validated end-to-end by this repo's testbed
+  (deb install + venv overlay + l10n_br_nfe test suite passing).
+- On trixie the nightly deb still depends on the removed
+  python3-pypdf2 package — 30-odoo-deb.sh auto-installs a tiny equivs
+  shim (Odoo imports pypdf). Harmless elsewhere.
+- Odoo 16/17 on Python 3.13 (trixie) is untested and likely fragile —
+  use bookworm/jammy for those series.
+- Odoo 20 is unreleased at writing; support assumed identical to 19.
+- The nginx vhost adapts to the Odoo series automatically
+  (/websocket for >= 16, /longpolling/ for older).
 
 ## Why not pip --break-system-packages?
 

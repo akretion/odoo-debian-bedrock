@@ -38,15 +38,19 @@ fi
 apt-get install -y odoo
 
 # wkhtmltopdf with patched Qt (required for proper report headers/footers;
-# the distro build is broken). Odoo's own builds, keyed by distro codename:
+# the distro build is broken). Latest builds (0.12.6.1-3) ship only for
+# bullseye/bookworm/jammy; noble runs the jammy build, trixie the bookworm one.
 . /etc/os-release
+ARCH=$(dpkg --print-architecture)
 case "${VERSION_CODENAME}" in
-  bookworm) WKURL="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.bookworm_$(dpkg --print-architecture).deb" ;;
-  noble)    WKURL="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.noble_$(dpkg --print-architecture).deb" ;;
-  *) echo "no wkhtmltox build known for ${VERSION_CODENAME}; skipping (reports will lack proper headers/footers)"; WKURL="" ;;
+  bookworm|trixie) WKDIST=bookworm ;;
+  jammy|noble)     WKDIST=jammy ;;
+  bullseye)        WKDIST=bullseye ;;
+  *) echo "no wkhtmltox build known for ${VERSION_CODENAME}; skipping (reports will lack proper headers/footers)"; WKDIST="" ;;
 esac
-if [ -n "$WKURL" ] && ! command -v wkhtmltopdf > /dev/null; then
-  wget -q "$WKURL" -O /tmp/wkhtmltox.deb && apt-get install -y /tmp/wkhtmltox.deb && rm -f /tmp/wkhtmltox.deb
+if [ -n "$WKDIST" ] && ! command -v wkhtmltopdf > /dev/null; then
+  wget -q "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.${WKDIST}_${ARCH}.deb" \
+    -O /tmp/wkhtmltox.deb && apt-get install -y /tmp/wkhtmltox.deb && rm -f /tmp/wkhtmltox.deb
 fi
 # (acsone/odoo-bedrock instead ships a kwkhtmltopdf CLIENT and runs the
 # renderer in a separate container — an option for layer 2/3 images.)
