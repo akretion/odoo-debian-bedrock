@@ -40,14 +40,36 @@ odoo-stub/             empty "odoo" dist so odoo-addon-* resolves
 templates/             odoo.conf, systemd override, nginx vhost
 ```
 
-## Usage (as root on a fresh Debian 13 / Ubuntu 24.04)
+## Install (as root on a fresh Debian 13 / Ubuntu 24.04)
+
+One-liner (git NOT required — fetches a tarball):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/akretion/odoo-debian-bedrock/main/install.sh | sudo sh
+```
+
+This installs into /opt/odoo-debian-bedrock and runs the full Layer 1
+setup. Re-run the same command any time to update the scripts.
+
+If you prefer to inspect before executing (the scripts are short and
+readable — that's the point):
+
+```bash
+sudo apt install -y git
+git clone https://github.com/akretion/odoo-debian-bedrock
+cd odoo-debian-bedrock
+sudo bash bin/bedrock                  # layer 1
+sudo bash bin/bedrock --with-docker    # layer 1 + layer 2 (docker/docky)
+```
+
+Optional environment variables (sensible defaults otherwise):
 
 ```bash
 export ODOO_VERSION=18.0          # odoo series to install
-export ODOO_ADMIN_PASSWD=...      # odoo master password
+export ODOO_ADMIN_PASSWD=...      # odoo master password (random if unset)
 export OCA_ADDONS="odoo-addon-l10n_br_base odoo-addon-l10n_br_fiscal"
-./bin/bedrock                     # layer 1
-./bin/bedrock --with-docker       # layer 1 + layer 2
+export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
+export PGDG=1                     # use postgresql.org repo instead of distro PG
 ```
 
 ## Why not pip --break-system-packages?
