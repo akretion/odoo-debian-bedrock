@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 # 60-backup: nightly pg_dump (custom format) + filestore tar, 14-day retention.
 #
-# FILESTORE_DIR = Odoo's filestore root on the host (per-db subdirs under it):
-#   layer 1 (deb):    /var/lib/odoo/.local/share/Odoo/filestore   (default)
-#   layer 2 (docker): the host-mounted volume, e.g. /home/app/soleio/data/filestore
-#                     (mount the project's filestore volume there, then set this)
+# The filestore is AUTO-DISCOVERED, covering both options without config:
+#   - venv (deb):   /var/lib/odoo/.local/share/Odoo/filestore
+#   - docker (dev): /home/app/<project>/data/filestore        (./data/filestore)
+#   - docker (prod):/home/app/data/<project>/filestore        (~/data/<proj>/filestore)
+# For an exotic layout, edit /usr/local/bin/odoo-backup after install.
 #
 # Optional off-site: set RCLONE_REMOTE to an rclone remote (e.g. b2:backups/host).
 set -euo pipefail
 : "${BACKUP_DB:=all}"
-: "${FILESTORE_DIR:=/var/lib/odoo/.local/share/Odoo/filestore}"
-
-FILESTORE_PARENT=$(dirname "$FILESTORE_DIR")
-FILESTORE_BASE=$(basename "$FILESTORE_DIR")
 
 install -d /var/backups/odoo
 
@@ -21,21 +18,28 @@ cat > /usr/local/bin/odoo-backup <<'EOF'
 set -euo pipefail
 DEST=/var/backups/odoo
 TS=$(date +%Y%m%d-%H%M%S)
+
+# databases (all non-template DBs on the host postgres)
 DBS=$(su - postgres -c "psql -tAc \"SELECT datname FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres')\"" )
 for db in $DBS; do
   su - postgres -c "pg_dump -Fc $db" > "$DEST/$TS-$db.dump"
 done
-if [ -d "@FILESTORE_DIR@" ]; then
-  tar -C "@FILESTORE_PARENT@" -czf "$DEST/$TS-filestore.tar.gz" "@FILESTORE_BASE@" 2>/dev/null || true
-fi
+
+# filestore(s) — auto-discovered across the venv + docker conventions
+backup_fs() {  # $1 = dir, $2 = slug for the archive name
+  [ -d "$1" ] || return 0
+  tar -C "$(dirname "$1")" -czf "$DEST/$TS-filestore-$2.tar.gz" "$(basename "$1")" 2>/dev/null || true
+}
+backup_fs /var/lib/odoo/.local/share/Odoo/filestore deb
+for fs in /home/app/*/data/filestore /home/app/data/*/filestore; do
+  [ -d "$fs" ] || continue
+  slug=$(echo "${fs#/home/app/}" | tr '/' '-')
+  backup_fs "$fs" "$slug"
+done
+
 [ -n "${RCLONE_REMOTE:-}" ] && rclone copy "$DEST" "$RCLONE_REMOTE" --max-age 24h
 find "$DEST" -mtime +14 -delete
 EOF
-sed -i \
-  -e "s|@FILESTORE_DIR@|$FILESTORE_DIR|g" \
-  -e "s|@FILESTORE_PARENT@|$FILESTORE_PARENT|g" \
-  -e "s|@FILESTORE_BASE@|$FILESTORE_BASE|g" \
-  /usr/local/bin/odoo-backup
 chmod +x /usr/local/bin/odoo-backup
 
 cat > /etc/cron.d/odoo-backup <<EOF

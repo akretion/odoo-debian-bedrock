@@ -25,7 +25,7 @@ run 20-postgres.sh
 if [ "$WITH_DOCKER" = 1 ]; then
   # Layer 2: Odoo runs in containers (acsone/odoo-bedrock image + mounted
   # source tarball), so the host deb/venv are redundant and skipped. Host
-  # postgres + backup stay (FILESTORE_DIR points at the container's mounted
+  # postgres + backup stay (backup auto-discovers the mounted filestore
   # volume); host nginx still proxies to the container's published 8069.
   run 70-docker.sh
 else

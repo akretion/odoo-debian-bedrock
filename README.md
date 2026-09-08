@@ -71,12 +71,6 @@ export OCA_ADDONS="odoo-addon-mis_builder odoo-addon-web_responsive"
 export ODOO_APT_HOLD=1            # pin the deb (managed fleets); default: no hold
 ```
 
-Option B — docker only:
-
-```bash
-export FILESTORE_DIR=/home/app/soleio/data/filestore  # mounted filestore volume (backup)
-```
-
 Common to both:
 
 ```bash
@@ -351,16 +345,6 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
 ```
 
-## Backup filestore path
-
-Backup (60-backup.sh) runs on docker hosts too; point FILESTORE_DIR at the
-container's mounted filestore volume:
-
-```bash
-FILESTORE_DIR=/home/app/soleio/data/filestore \
-  sudo -E bash /opt/odoo-debian-bedrock/scripts/60-backup.sh
-```
-
 ---
 
 # Common to both options
@@ -426,10 +410,15 @@ opened only in the docker option (70-docker.sh), gated by pg_hba + ufw.
 
 60-backup.sh installs a nightly cron (pg_dump in custom format + filestore
 tar, 14-day retention). Set RCLONE_REMOTE (e.g. `b2:backups/host`) for
-off-site copies. The filestore path is FILESTORE_DIR:
+off-site copies. The filestore is auto-discovered, covering both options:
 
-- venv (default): /var/lib/odoo/.local/share/Odoo/filestore
-- docker: the mounted volume (see the docker section).
+- venv:  /var/lib/odoo/.local/share/Odoo/filestore
+- docker (dev):  /home/app/<project>/data/filestore
+- docker (prod): /home/app/data/<project>/filestore
+
+(the two docker shapes are the `./data/filestore` vs `~/data/<project>/filestore`
+conventions from the docky template). For an exotic layout, edit
+/usr/local/bin/odoo-backup after install.
 
 ## CI
 
