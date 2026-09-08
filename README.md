@@ -68,6 +68,16 @@ export OCA_ADDONS="odoo-addon-mis_builder odoo-addon-web_responsive"
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
+
+# PostgreSQL tuning overrides (defaults are in scripts/lib-instance.sh):
+export PG_RANDOM_PAGE_COST=1.1
+export PG_CHECKPOINT_COMPLETION_TARGET=0.9
+export PG_AUTOVACUUM_MAX_WORKERS=4
+export PG_AUTOVACUUM_VACUUM_SCALE_FACTOR=0.05
+export PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR=0.02
+# arbitrary extra settings (RAM-dependent ones etc.), one "key = value" per line:
+export PG_EXTRA_CONF="shared_buffers = 2GB
+work_mem = 64MB"
 ```
 
 ## Compatibility matrix
@@ -130,6 +140,33 @@ rebuilds:
    cryptography releases if you use the fiscal chain.
 4. bedrock's own scripts: re-run the install.sh one-liner (it
    self-updates /opt/odoo-debian-bedrock first).
+
+## PostgreSQL tuning
+
+`20-postgres.sh` writes an Odoo-oriented drop-in at
+/etc/postgresql/<ver>/main/conf.d/bedrock.conf with safe defaults:
+
+- password_encryption = scram-sha-256
+- random_page_cost = 1.1            (SSD/NVMe: prefer index scans)
+- checkpoint_completion_target = 0.9 (smooth checkpoint I/O)
+- autovacuum_max_workers = 4
+- autovacuum_vacuum_scale_factor = 0.05  (aggressive cleanup)
+- autovacuum_analyze_scale_factor = 0.02  (fresher stats)
+
+Every value is overridable via env vars (see the install section), and
+RAM-dependent settings (shared_buffers, effective_cache_size, work_mem,
+maintenance_work_mem) or anything else go in PG_EXTRA_CONF — those lines
+are appended last, so they win. Example:
+
+```bash
+export PG_EXTRA_CONF="shared_buffers = 2GB
+effective_cache_size = 6GB
+work_mem = 64MB"
+```
+
+`listen_addresses` is deliberately NOT set here: layer-1 Odoo talks to
+postgres over the unix socket, so the port stays closed by default. It is
+opened only on layer 2 (docker) by 70-docker.sh, gated by pg_hba + ufw.
 
 ## Custom project / custom code
 

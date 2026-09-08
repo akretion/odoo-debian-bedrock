@@ -15,6 +15,10 @@ fi
 
 apt-get install -y -qq postgresql postgresql-client libpq-dev
 
+# shellcheck source=lib-instance.sh
+source "$(dirname "$0")/lib-instance.sh"
+configure_pg_tuning
+
 # Odoo deb's postinst creates the 'odoo' role; if it ran before postgres
 # was up (or postgres was installed after), ensure the role exists:
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='odoo'\" | grep -q 1 || createuser -d -R -S odoo" || true

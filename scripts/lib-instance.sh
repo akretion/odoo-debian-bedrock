@@ -109,6 +109,36 @@ render_nginx() {  # $1=domain $2=ws_path $3=odooport $4=longpollport $5=outfile
       "$BEDROCK_DIR/templates/nginx.conf" > "$5"
 }
 
+# Odoo-oriented postgres tuning into conf.d/bedrock.conf. The fixed defaults
+# are safe for SSD + Odoo's write churn; override each via PG_* env vars, or
+# append arbitrary settings via PG_EXTRA_CONF (one "key = value" per line —
+# these come LAST so they win over the defaults, e.g. the RAM-dependent
+# shared_buffers / work_mem). listen_addresses is deliberately NOT here: it
+# is opened only on layer 2 by configure_pg_for_docker.
+configure_pg_tuning() {
+  local pgver confdir conffile
+  pgver=$(ls /etc/postgresql | head -1)
+  confdir="/etc/postgresql/$pgver/main/conf.d"
+  conffile="$confdir/bedrock.conf"
+  mkdir -p "$confdir"
+  {
+    echo "# odoo-debian-bedrock: Odoo-oriented tuning (override via PG_* env vars)"
+    echo "password_encryption = '${PG_PASSWORD_ENCRYPTION:-scram-sha-256}'"
+    echo "random_page_cost = ${PG_RANDOM_PAGE_COST:-1.1}"
+    echo "checkpoint_completion_target = ${PG_CHECKPOINT_COMPLETION_TARGET:-0.9}"
+    echo "autovacuum_max_workers = ${PG_AUTOVACUUM_MAX_WORKERS:-4}"
+    echo "autovacuum_vacuum_scale_factor = ${PG_AUTOVACUUM_VACUUM_SCALE_FACTOR:-0.05}"
+    echo "autovacuum_analyze_scale_factor = ${PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR:-0.02}"
+    if [ -n "${PG_EXTRA_CONF:-}" ]; then
+      echo "# --- PG_EXTRA_CONF (last, so it overrides the above) ---"
+      printf '%s\n' "$PG_EXTRA_CONF"
+    fi
+  } > "$conffile"
+  chown postgres:postgres "$conffile" 2>/dev/null || true
+  chmod 644 "$conffile"
+  pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
+}
+
 # Make host postgres reachable from docker containers over TCP
 # (listen_addresses='*' gated by pg_hba + ufw; see README).
 configure_pg_for_docker() {
