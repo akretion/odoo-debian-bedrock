@@ -129,7 +129,10 @@ jobs:
           rm -rf /tmp/fixproj
           mkdir -p /tmp/fixproj/odoo/links /tmp/fixproj/odoo/local-src /tmp/fixproj/odoo/external-src/server-tools
           touch /tmp/fixproj/odoo/links/.keep /tmp/fixproj/odoo/local-src/.keep /tmp/fixproj/odoo/external-src/server-tools/.keep
-          cd /tmp/fixproj && git init -q && git -c user.email=ci@ci -c user.name=ci add -A && git -c user.email=ci@ci -c user.name=ci commit -qm init
+          # git -C (no cd) so the next `bash scripts/...` still resolves to the workspace
+          git -C /tmp/fixproj init -q
+          git -C /tmp/fixproj -c user.email=ci@ci -c user.name=ci add -A
+          git -C /tmp/fixproj -c user.email=ci@ci -c user.name=ci commit -qm init
           PROJECT_NAME=fixproj PROJECT_REPO=/tmp/fixproj PROJECT_BRANCH= bash scripts/81-staging.sh
           # assert the instance artifacts
           id app-staging > /dev/null && id odoo-staging > /dev/null
