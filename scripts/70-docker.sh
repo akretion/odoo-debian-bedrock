@@ -14,8 +14,13 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# docky: Akretion's docker-compose wrapper
-pipx install docky 2>/dev/null || pip3 install --user docky || true
+# docky: Akretion's docker-compose wrapper. PEP 668 forbids a system-wide
+# pip3 install, so use pipx. PIPX_HOME/PIPX_BIN_DIR are SHARED (not the
+# default /root/.local) so the `app` user — which actually runs the
+# containers — sees the `docky` entry point on its PATH.
+apt-get install -y -qq pipx
+PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install docky --include-deps
+command -v docky > /dev/null || { echo "ERROR: docky install failed (layer 2 incomplete)" >&2; exit 1; }
 
 # app user runs the containers (matches our ansible/docky convention):
 id app &>/dev/null || adduser --disabled-password --gecos "" app

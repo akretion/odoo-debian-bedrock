@@ -133,6 +133,8 @@ jobs:
           git -C /tmp/fixproj init -q
           git -C /tmp/fixproj -c user.email=ci@ci -c user.name=ci add -A
           git -C /tmp/fixproj -c user.email=ci@ci -c user.name=ci commit -qm init
+          # the repo is root-owned but cloned by app-staging; allow it
+          git config --system --add safe.directory /tmp/fixproj
           PROJECT_NAME=fixproj PROJECT_REPO=/tmp/fixproj PROJECT_BRANCH= bash scripts/81-staging.sh
           # assert the instance artifacts
           id app-staging > /dev/null && id odoo-staging > /dev/null
