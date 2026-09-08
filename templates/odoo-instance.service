@@ -1,0 +1,18 @@
+[Unit]
+Description=Odoo @NAME@ instance
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=@RUNTIME_USER@
+Group=@RUNTIME_USER@
+ExecStart=@VENV@/bin/python3 /usr/bin/odoo --config @CONF@ --logfile @LOG_DIR@/odoo-server.log
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+ProtectSystem=full
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

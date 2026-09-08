@@ -155,6 +155,44 @@ What this does:
   e.g. after adding an external-src repo).
 - scopes dbfilter to ^<project>.* and restarts odoo.
 
+## Staging on the same host (multiple instances)
+
+A bedrock host can run several isolated Odoo instances sharing the one
+core deb — typically prod + staging. Each instance gets its own deploy
+user, runtime user, venv, config, postgres role, ports, and systemd
+unit. `81-staging.sh` creates one:
+
+```bash
+PROJECT_NAME=acme PROJECT_REPO=git@github.com:akretion/acme.git \
+  PROJECT_BRANCH=staging STAGING_DOMAIN=staging.acme.example.com \
+  sudo -E bash /opt/odoo-debian-bedrock/scripts/81-staging.sh
+```
+
+Isolation map (prod → staging):
+
+| layer        | prod                          | staging                              |
+|--------------|-------------------------------|--------------------------------------|
+| deploy user  | app  (/home/app/<project>)    | app-staging  (/home/app-staging/...) |
+| runtime user | odoo (/var/lib/odoo)          | odoo-staging (/var/lib/odoo-staging) |
+| venv         | /usr/lib/odoo/venv            | /usr/lib/odoo/venv-staging           |
+| config       | /etc/odoo/odoo.conf           | /etc/odoo/odoo-staging.conf          |
+| postgres role| odoo                          | odoo-staging                         |
+| ports        | 8069 / 8072                   | 8070 / 8073                          |
+| systemd      | odoo.service                  | odoo-staging.service                 |
+| code branch  | (prod branch)                 | (staging branch via PROJECT_BRANCH)  |
+
+Key design points:
+
+- **Deploy user separation** is the reason this exists: grant SSH keys to
+  app-staging for developers allowed to deploy staging but not prod.
+- **Separate postgres user comes free** from peer auth: the runtime user
+  odoo-staging maps to the PG role odoo-staging (no passwords anywhere).
+- **Separate venv** lets staging pin different odoo-addon versions than
+  prod — a shared venv cannot hold two versions of the same addon.
+- Different Odoo *core* version per instance is NOT covered by the deb
+  (one core per host): for that, add a source clone to that instance's
+  addons_path and point its unit at odoo-bin (see "Patching Odoo core").
+
 ## CI
 
 GitHub Actions (.github/workflows/ci.yml) runs on every push:

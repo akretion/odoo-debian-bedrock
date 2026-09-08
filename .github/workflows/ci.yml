@@ -119,6 +119,33 @@ jobs:
           echo "nginx HTTP $code80"
           [ "$code80" = "200" ] || [ "$code80" = "302" ] || [ "$code80" = "303" ]
 
+      - name: smoke test — staging instance (81-staging.sh)
+        if: matrix.name == 'noble-18'
+        env:
+          ODOO_VERSION: ${{ matrix.odoo }}
+        run: |
+          # minimal fixture project (a local git repo app-staging can clone)
+          rm -rf /tmp/fixproj && mkdir -p /tmp/fixproj/odoo/{links,local-src,external-src/server-tools}
+          touch /tmp/fixproj/odoo/links/.keep /tmp/fixproj/odoo/local-src/.keep /tmp/fixproj/odoo/external-src/server-tools/.keep
+          cd /tmp/fixproj && git init -q && git -c user.email=ci@ci -c user.name=ci add -A && git -c user.email=ci@ci -c user.name=ci commit -qm init
+          PROJECT_NAME=fixproj PROJECT_REPO=/tmp/fixproj PROJECT_BRANCH= bash scripts/81-staging.sh
+          # assert the instance artifacts
+          id app-staging > /dev/null && id odoo-staging > /dev/null
+          [ -x /usr/lib/odoo/venv-staging/bin/python3 ]
+          grep -q "db_user = odoo-staging" /etc/odoo/odoo-staging.conf
+          grep -q "http_port = 8070" /etc/odoo/odoo-staging.conf
+          grep -q "dbfilter = ^fixproj_staging" /etc/odoo/odoo-staging.conf
+          [ -f /etc/systemd/system/odoo-staging.service ]
+          # boot staging odoo on the alternate port and check it serves
+          su -s /bin/bash odoo-staging -c "/usr/lib/odoo/venv-staging/bin/python3 /usr/bin/odoo -c /etc/odoo/odoo-staging.conf > /tmp/staging.log 2>&1 &"
+          for i in $(seq 1 30); do
+            sleep 2
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8070/web/login || true)
+            [ "$code" = "200" ] || [ "$code" = "303" ] && break
+          done
+          echo "staging HTTP $code"
+          [ "$code" = "200" ] || [ "$code" = "303" ]
+
   # Akretion's own tooling must stay installable on every distro we
   # support, independent of the Odoo install tests. docky (PyPI) + ak (git).
   tools:

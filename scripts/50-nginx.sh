@@ -8,19 +8,21 @@ export DEBIAN_FRONTEND=noninteractive
 : "${ODOO_VERSION:=18.0}"
 : "${CERTBOT_EMAIL:=}"
 
+# shellcheck source=lib-instance.sh
+source "$(dirname "$0")/lib-instance.sh"
+
 [ -z "$DOMAIN" ] && { echo "DOMAIN not set, skipping nginx."; exit 0; }
 
 apt-get install -y -qq nginx certbot python3-certbot-nginx
 
-# /websocket (Odoo >= 16) vs /longpolling/ (Odoo <= 15), same 8072 port.
+# /websocket (Odoo >= 16) vs /longpolling/ (Odoo <= 15), same longpolling port.
 WS_PATH=/websocket
 case "$ODOO_VERSION" in
   8.*|9.*|1[0-5].*) WS_PATH=/longpolling/ ;;
 esac
 
-BEDROCK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-sed -e "s/@DOMAIN@/$DOMAIN/g" -e "s|@WS_PATH@|$WS_PATH|" \
-  "$BEDROCK_DIR/templates/nginx.conf" > /etc/nginx/sites-available/odoo
+render_nginx "$DOMAIN" "$WS_PATH" "${ODOO_PORT:-8069}" "${LONGPOLLING_PORT:-8072}" \
+  /etc/nginx/sites-available/odoo
 ln -sf /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/odoo
 
 # nginx config check; then reload a running master, or start one
