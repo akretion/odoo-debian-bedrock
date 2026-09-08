@@ -3,13 +3,12 @@
 Akretion's minimal on-premise, layered Odoo host installation for Debian/Ubuntu.
 
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
-image we already use in our docky installs — that image remains the
-Layer 2/3 app runtime; odoo-debian-bedrock is the HOST layer beneath it.)
+image we already use in our optional docker installs)
 
 The idea: the official Odoo deb package gives you the boring 15%
 (system user, /etc/odoo/odoo.conf, postgres role, logrotate, base
 systemd unit). bedrock adds the production 85% as a thin, auditable
-overlay of idempotent shell scripts — no framework to learn.
+overlay of only 300 lines of idempotent shell scripts — no framework to learn.
 
 ## Layers
 
@@ -17,12 +16,10 @@ overlay of idempotent shell scripts — no framework to learn.
   `--system-site-packages` for OCA addons (`odoo-addon-*`) and pinned
   Python deps. apt and pip never manage the same directory, so
   unattended-upgrades keeps working without breaking the install.
-  This is the tier for small on-premise customers and the basis of the
-  public PT-BR install guide.
+  This is the tier for small on-premise Odoo users or customers.
 - **Layer 2 (`--with-docker`):** everything from Layer 1 host prep,
   plus Docker + docky for docker-compose based projects
-  (docky-odoo-template-shared). The Odoo app itself then runs in
-  containers built from the same pinned addon set.
+  (docky-odoo-template-shared). 
 
 ## Layout
 
@@ -133,7 +130,7 @@ rebuilds:
 4. bedrock's own scripts: re-run the install.sh one-liner (it
    self-updates /opt/odoo-debian-bedrock first).
 
-## Custom project (custom code)
+## Custom project / custom code
 
 Projects with custom modules (repos carrying
 odoo/links, odoo/local-src, odoo/external-src, odoo/requirements.txt)
