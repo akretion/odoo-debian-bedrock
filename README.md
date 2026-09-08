@@ -160,11 +160,15 @@ What this does:
 
 ## CI
 
-GitHub Actions (.github/workflows/ci.yml) runs on every push: a
-shellcheck lint job, plus a REAL install job that runs the bedrock
-scripts inside the actual distro container (ubuntu:24.04 + Odoo 18.0
-to start — extend the matrix for more combos), starts postgres,
-installs l10n_br_base on a fresh db, and checks Odoo serves HTTP.
+GitHub Actions (.github/workflows/ci.yml) runs on every push:
+
+- **lint** — shellcheck over all scripts.
+- **install** — a REAL install job per README "OK" cell: runs the
+  bedrock scripts inside the actual distro container (Debian 12/13,
+  Ubuntu 22.04/24.04 × Odoo 16/17/18/19), starts postgres, installs
+  mis_builder + web_responsive on a fresh db, and checks Odoo serves HTTP.
+- **tools** — installs docky (PyPI) and ak (git) via pipx on each of
+  the four distros, so our own tooling is proven installable everywhere.
 
 ## Why not pip --break-system-packages?
 

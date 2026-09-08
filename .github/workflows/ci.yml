@@ -20,15 +20,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every README "OK" cell (Odoo 17 skipped; trixie+16 is "??" untested).
+        # Every README "OK" cell (trixie+16/17 are "??" untested).
         include:
           - { name: "debian12-16", image: debian:12,  odoo: "16.0" }
+          - { name: "debian12-17", image: debian:12,  odoo: "17.0" }
           - { name: "debian12-18", image: debian:12,  odoo: "18.0" }
           - { name: "debian13-18", image: debian:13,  odoo: "18.0" }
           - { name: "debian13-19", image: debian:13,  odoo: "19.0" }
           - { name: "jammy-16",    image: ubuntu:22.04, odoo: "16.0" }
+          - { name: "jammy-17",    image: ubuntu:22.04, odoo: "17.0" }
           - { name: "jammy-18",    image: ubuntu:22.04, odoo: "18.0" }
           - { name: "noble-16",    image: ubuntu:24.04, odoo: "16.0" }
+          - { name: "noble-17",    image: ubuntu:24.04, odoo: "17.0" }
           - { name: "noble-18",    image: ubuntu:24.04, odoo: "18.0" }
           - { name: "noble-19",    image: ubuntu:24.04, odoo: "19.0" }
     name: install (${{ matrix.name }})
@@ -88,3 +91,30 @@ jobs:
           done
           echo "HTTP $code"
           [ "$code" = "200" ] || [ "$code" = "303" ]
+
+  # Akretion's own tooling must stay installable on every distro we
+  # support, independent of the Odoo install tests. docky (PyPI) + ak (git).
+  tools:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:12, debian:13, ubuntu:22.04, ubuntu:24.04]
+    name: tools (${{ matrix.image }})
+    container: ${{ matrix.image }}
+    steps:
+      - name: bootstrap git/curl + pipx
+        run: apt-get update -qq && apt-get install -y -qq git curl ca-certificates pipx
+
+      - name: install docky + ak
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          pipx install docky --include-deps
+          pipx install git+https://github.com/akretion/ak --force --include-deps
+
+      - name: smoke test — CLI entry points
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          docky --help > /dev/null
+          ak --help > /dev/null
+          echo "docky and ak OK"
