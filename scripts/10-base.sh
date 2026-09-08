@@ -13,15 +13,15 @@ sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen 2>/dev/null || true
 locale-gen > /dev/null 2>&1 || true
 update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8 || true
 
-# Security upgrades for the OS only. The odoo deb is pinned/held in
-# 30-odoo-deb.sh: unattended Odoo minor upgrades can require `-u all`
-# and must stay a deliberate, backed-up operation.
+# Automatic security upgrades for the OS (openssl, python3, postgres...).
+# The nightly.odoo.com repo is not a *security* origin, so the odoo
+# package itself only upgrades on a deliberate `apt upgrade` — see
+# README "Security & updates".
 cat > /etc/apt/apt.conf.d/51akretion-unattended <<'EOF'
 Unattended-Upgrade::Allowed-Origins {
   "${distro_id}:${distro_codename}-security";
   "${distro_id}ESMApps:${distro_codename}-apps-security";
 };
-Unattended-Upgrade::Package-Blacklist { "odoo"; };
 EOF
 dpkg-reconfigure -f noninteractive unattended-upgrades || true
 

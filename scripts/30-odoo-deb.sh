@@ -56,7 +56,11 @@ fi
 # renderer in a separate container — an option for layer 2/3 images.)
 
 
-# Never let apt bump Odoo silently: upgrades are a maintenance-window op:
-#   apt-mark unhold odoo && apt install odoo=<dated-build> && \
-#   sudo -u odoo odoo -c /etc/odoo/odoo.conf -u all --stop-after-init
-apt-mark hold odoo
+# Odoo nightly debs are designed for in-series upgrades (apt upgrade):
+# stable series get backward-compatible fixes, including security fixes.
+# Managed fleets that prefer deliberate upgrade windows can opt into a
+# hold with ODOO_APT_HOLD=1 (then upgrades are: apt-mark unhold odoo &&
+# apt install odoo && systemctl restart odoo, see README "Updating").
+if [ "${ODOO_APT_HOLD:-0}" = 1 ]; then
+  apt-mark hold odoo
+fi

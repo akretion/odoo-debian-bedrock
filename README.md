@@ -1,6 +1,6 @@
 # odoo-debian-bedrock
 
-Akretion's minimal, layered Odoo host installation for Debian/Ubuntu.
+Akretion's minimal on-premise, layered Odoo host installation for Debian/Ubuntu.
 
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
 image we already use in our docky installs — that image remains the
@@ -9,8 +9,7 @@ Layer 2/3 app runtime; odoo-debian-bedrock is the HOST layer beneath it.)
 The idea: the official Odoo deb package gives you the boring 15%
 (system user, /etc/odoo/odoo.conf, postgres role, logrotate, base
 systemd unit). bedrock adds the production 85% as a thin, auditable
-overlay of idempotent shell scripts — no Ansible, no Proxmox, no
-framework to learn.
+overlay of idempotent shell scripts — no framework to learn.
 
 ## Layers
 
@@ -42,7 +41,7 @@ templates/             odoo.conf, systemd override, nginx vhost
 
 ## Install (as root on a fresh Debian 13 / Ubuntu 24.04)
 
-One-liner (git NOT required — fetches a tarball):
+One-liner:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/akretion/odoo-debian-bedrock/main/install.sh | sudo sh
@@ -67,7 +66,7 @@ Optional environment variables (sensible defaults otherwise):
 ```bash
 export ODOO_VERSION=18.0          # odoo series to install
 export ODOO_ADMIN_PASSWD=...      # odoo master password (random if unset)
-export OCA_ADDONS="odoo-addon-l10n_br_base odoo-addon-l10n_br_fiscal"
+export OCA_ADDONS="odoo-addon-mis_builder odoo-addon-web_responsive"
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
@@ -80,23 +79,59 @@ What the official deb + bedrock overlay support, per distro Python
 
 | Distro                    | Python | Odoo 16 | 17 | 18 | 19 | 20 |
 |---------------------------|--------|---------|----|----|----|----|
-| Debian 12 (bookworm)      | 3.11   | OK      | OK | OK | -- | -- |
-| Debian 13 (trixie)        | 3.13   | ??      | ?? | OK | OK | OK |
-| Ubuntu 22.04 LTS (jammy)  | 3.10   | OK      | OK | OK | -- | -- |
+| Debian 12 (bookworm)      | 3.11   | OK      | OK | OK | no | no |
+| Debian 13 (trixie)        | 3.13   | no      | no | OK | OK | OK |
+| Ubuntu 22.04 LTS (jammy)  | 3.10   | OK      | OK | OK | no | no |
 | Ubuntu 24.04 LTS (noble)  | 3.12   | OK      | OK | OK | OK | OK |
 
 Notes:
 
-- "OK" on 18/trixie is validated end-to-end by this repo's testbed
-  (deb install + venv overlay + l10n_br_nfe test suite passing).
 - On trixie the nightly deb still depends on the removed
   python3-pypdf2 package — 30-odoo-deb.sh auto-installs a tiny equivs
   shim (Odoo imports pypdf). Harmless elsewhere.
-- Odoo 16/17 on Python 3.13 (trixie) is untested and likely fragile —
-  use bookworm/jammy for those series.
-- Odoo 20 is unreleased at writing; support assumed identical to 19.
 - The nginx vhost adapts to the Odoo series automatically
   (/websocket for >= 16, /longpolling/ for older).
+
+## Security & updates
+
+This is where the deb-based design pays off vs a Docker image nobody
+rebuilds:
+
+1. OS security updates (openssl, python3, postgresql, nginx, kernel
+   libs) install AUTOMATICALLY via unattended-upgrades. A bedrock
+   server left alone for a year still gets its CVE fixes.
+2. Odoo fixes: the nightly deb is designed for in-series upgrades —
+   Odoo's stable series only receive backward-compatible fixes
+   (including security fixes). To update Odoo:
+
+   ```bash
+   sudo apt update && sudo apt upgrade     # pulls the latest nightly of your series
+   sudo systemctl restart odoo
+   ```
+
+   Rarely, a nightly requires a module refresh — if the logs complain
+   after an upgrade, run once:
+
+   ```bash
+   sudo -u odoo odoo -c /etc/odoo/odoo.conf -d <your_db> -u all --stop-after-init
+   sudo systemctl restart odoo
+   ```
+
+   Managed fleets that prefer deliberate upgrade windows can install
+   with ODOO_APT_HOLD=1 (apt-mark hold odoo).
+3. OCA addons live in the venv (pip). Update them deliberately:
+
+   ```bash
+   sudo /usr/lib/odoo/venv/bin/pip install -U odoo-addon-mis_builder
+   sudo -u odoo odoo -c /etc/odoo/odoo.conf -d <your_db> -u mis_builder --stop-after-init
+   sudo systemctl restart odoo
+   ```
+
+   Note: venv pip packages are NOT covered by apt security updates —
+   that's the trade for version pinning. Watch erpbrasil/signxml/
+   cryptography releases if you use the fiscal chain.
+4. bedrock's own scripts: re-run the install.sh one-liner (it
+   self-updates /opt/odoo-debian-bedrock first).
 
 ## Why not pip --break-system-packages?
 
