@@ -170,6 +170,58 @@ GitHub Actions (.github/workflows/ci.yml) runs on every push:
 - **tools** — installs docky (PyPI) and ak (git) via pipx on each of
   the four distros, so our own tooling is proven installable everywhere.
 
+## Patching Odoo core (commits / PRs / forks)
+
+The deb installs Odoo into /usr/lib/python3/dist-packages/odoo — it is
+dpkg-owned and has NO .git. To apply a fix from github.com/odoo/odoo (or
+a fork) you have two options.
+
+### Option A — patch the installed files in place (quick, untracked)
+
+GitHub serves a unified diff for any commit or PR:
+
+    # a specific commit (on odoo/odoo or any fork):
+    curl -L https://github.com/odoo/odoo/commit/<sha>.diff -o /tmp/fix.diff
+    # or an entire PR (same URL shape, /pull/<n>.diff)
+    curl -L https://github.com/odoo/odoo/pull/12345.diff -o /tmp/pr.diff
+
+    cd /usr/lib/python3/dist-packages/odoo
+    sudo patch -p1 < /tmp/pr.diff
+    sudo systemctl restart odoo
+
+Caveats: nothing is tracked (keep your .diff files somewhere versioned),
+and `apt upgrade` of the odoo deb silently overwrites patched files — you
+must re-apply after every upgrade. Good for one-off hotfixes.
+
+### Option B — source mode (shallow clone, full git)
+
+Cleaner once you're patching core: run from a shallow git clone instead
+of the deb's copy. A nightly is just tip-of-branch at build time, so
+this reproduces your installed version:
+
+    git clone --depth 1 --single-branch --branch 18.0 \
+      https://github.com/odoo/odoo /opt/odoo-src
+
+    # apply a PR as a real branch, then cherry-pick:
+    git -C /opt/odoo-src fetch origin pull/12345/head:pr-12345
+    git -C /opt/odoo-src cherry-pick pr-12345
+
+    # or apply a single commit/PR patch and commit it:
+    curl -L https://github.com/odoo/odoo/pull/12345.patch | git -C /opt/odoo-src am
+
+IMPORTANT layout difference: a git clone keeps framework addons
+(odoo/addons — `base` etc.) SEPARATE from business addons (addons/ — web,
+account, ...), whereas the deb merges both into odoo/addons. So in source
+mode your addons_path must list BOTH clone dirs, then the OCA venv, and
+you must run the clone's odoo-bin:
+
+    addons_path = /opt/odoo-src/odoo/addons,/opt/odoo-src/addons,\
+        /usr/lib/odoo/venv/lib/python3.12/site-packages/odoo/addons
+    # run: /usr/lib/odoo/venv/bin/python3 /opt/odoo-src/odoo-bin -c /etc/odoo/odoo.conf
+
+(For a build pinned to a specific date rather than tip-of-branch, clone
+with `--shallow-since=<date>` so there is history to search.)
+
 ## Why not pip --break-system-packages?
 
 pip and dpkg managing the same /usr/lib/python3/dist-packages
