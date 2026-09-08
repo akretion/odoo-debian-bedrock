@@ -39,7 +39,10 @@ jobs:
     steps:
       # checkout needs git inside the container; install first
       - name: bootstrap git/curl
-        run: apt-get update -qq && apt-get install -y -qq git curl ca-certificates
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime 2>/dev/null || true
+          apt-get update -qq && apt-get install -y -qq git curl ca-certificates
 
       - uses: actions/checkout@v4
 
@@ -128,7 +131,10 @@ jobs:
     container: ${{ matrix.image }}
     steps:
       - name: bootstrap git/curl + pipx
-        run: apt-get update -qq && apt-get install -y -qq git curl ca-certificates pipx
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime 2>/dev/null || true
+          apt-get update -qq && apt-get install -y -qq git curl ca-certificates pipx
 
       - name: install docky + ak
         run: |
