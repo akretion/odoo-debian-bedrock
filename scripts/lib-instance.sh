@@ -116,14 +116,33 @@ render_nginx() {  # $1=domain $2=ws_path $3=odooport $4=longpollport $5=outfile
 # shared_buffers / work_mem). listen_addresses is deliberately NOT here: it
 # is opened only on layer 2 by configure_pg_for_docker.
 configure_pg_tuning() {
-  local pgver confdir conffile
+  local pgver confdir conffile mem_mb sb ecs wm mwm
   pgver=$(ls /etc/postgresql | head -1)
   confdir="/etc/postgresql/$pgver/main/conf.d"
   conffile="$confdir/bedrock.conf"
   mkdir -p "$confdir"
+
+  # RAM-derived defaults (overridable via PG_* env vars). Percentages follow
+  # the usual Odoo/Postgres guidance, capped to avoid over-subscription:
+  #   shared_buffers        25% RAM (cap 8GB)
+  #   effective_cache_size  75% RAM
+  #   maintenance_work_mem  10% RAM (cap 2GB)
+  #   work_mem              RAM/256, clamped [16MB, 256MB]
+  mem_mb=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 ))
+  [ "$mem_mb" -gt 0 ] || mem_mb=4096
+  sb=$(( mem_mb / 4 ));  [ "$sb"  -gt 8192 ] && sb=8192
+  ecs=$(( mem_mb * 3 / 4 ))
+  mwm=$(( mem_mb / 10 )); [ "$mwm" -gt 2048 ] && mwm=2048
+  wm=$(( mem_mb / 256 )); [ "$wm" -lt 16 ] && wm=16; [ "$wm" -gt 256 ] && wm=256
+
   {
     echo "# odoo-debian-bedrock: Odoo-oriented tuning (override via PG_* env vars)"
+    echo "# detected RAM: ${mem_mb}MB"
     echo "password_encryption = '${PG_PASSWORD_ENCRYPTION:-scram-sha-256}'"
+    echo "shared_buffers = ${PG_SHARED_BUFFERS:-${sb}MB}"
+    echo "effective_cache_size = ${PG_EFFECTIVE_CACHE_SIZE:-${ecs}MB}"
+    echo "maintenance_work_mem = ${PG_MAINTENANCE_WORK_MEM:-${mwm}MB}"
+    echo "work_mem = ${PG_WORK_MEM:-${wm}MB}"
     echo "random_page_cost = ${PG_RANDOM_PAGE_COST:-1.1}"
     echo "checkpoint_completion_target = ${PG_CHECKPOINT_COMPLETION_TARGET:-0.9}"
     echo "autovacuum_max_workers = ${PG_AUTOVACUUM_MAX_WORKERS:-4}"

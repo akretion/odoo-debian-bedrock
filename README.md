@@ -69,15 +69,18 @@ export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
 
-# PostgreSQL tuning overrides (defaults are in scripts/lib-instance.sh):
+# PostgreSQL tuning overrides (RAM-dependent defaults are auto-sized):
+export PG_SHARED_BUFFERS=2GB        # default: 25% RAM (cap 8GB)
+export PG_EFFECTIVE_CACHE_SIZE=6GB  # default: 75% RAM
+export PG_MAINTENANCE_WORK_MEM=1GB  # default: 10% RAM (cap 2GB)
+export PG_WORK_MEM=64MB             # default: RAM/256, [16..256]MB
 export PG_RANDOM_PAGE_COST=1.1
 export PG_CHECKPOINT_COMPLETION_TARGET=0.9
 export PG_AUTOVACUUM_MAX_WORKERS=4
 export PG_AUTOVACUUM_VACUUM_SCALE_FACTOR=0.05
 export PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR=0.02
-# arbitrary extra settings (RAM-dependent ones etc.), one "key = value" per line:
-export PG_EXTRA_CONF="shared_buffers = 2GB
-work_mem = 64MB"
+# anything else, one "key = value" per line (appended last, wins over defaults):
+export PG_EXTRA_CONF="max_connections = 200"
 ```
 
 ## Compatibility matrix
@@ -144,7 +147,16 @@ rebuilds:
 ## PostgreSQL tuning
 
 `20-postgres.sh` writes an Odoo-oriented drop-in at
-/etc/postgresql/<ver>/main/conf.d/bedrock.conf with safe defaults:
+/etc/postgresql/<ver>/main/conf.d/bedrock.conf. The RAM-dependent settings
+are sized automatically from the detected total RAM (percentage rules, capped
+to avoid over-subscription):
+
+- shared_buffers = 25% RAM (cap 8GB)
+- effective_cache_size = 75% RAM
+- maintenance_work_mem = 10% RAM (cap 2GB)
+- work_mem = RAM/256, clamped to [16MB, 256MB]
+
+Fixed defaults:
 
 - password_encryption = scram-sha-256
 - random_page_cost = 1.1            (SSD/NVMe: prefer index scans)
@@ -153,15 +165,15 @@ rebuilds:
 - autovacuum_vacuum_scale_factor = 0.05  (aggressive cleanup)
 - autovacuum_analyze_scale_factor = 0.02  (fresher stats)
 
-Every value is overridable via env vars (see the install section), and
-RAM-dependent settings (shared_buffers, effective_cache_size, work_mem,
-maintenance_work_mem) or anything else go in PG_EXTRA_CONF — those lines
-are appended last, so they win. Example:
+Every value is overridable via a PG_* env var (see the install section),
+e.g. `PG_SHARED_BUFFERS=2GB`. Anything else — or a final override of the
+above — goes in PG_EXTRA_CONF, one "key = value" per line, appended LAST
+so it wins:
 
 ```bash
-export PG_EXTRA_CONF="shared_buffers = 2GB
-effective_cache_size = 6GB
-work_mem = 64MB"
+export PG_SHARED_BUFFERS=2GB
+export PG_EXTRA_CONF="max_connections = 200
+synchronous_commit = off"
 ```
 
 `listen_addresses` is deliberately NOT set here: layer-1 Odoo talks to
