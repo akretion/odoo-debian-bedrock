@@ -48,11 +48,19 @@ project_addons_path() {  # $1 = project dir
   echo "${out%,}"
 }
 
-# Idempotently (re)write the project addons_path + dbfilter block in a config.
+# Idempotently (re)write the project addons_path + dbfilter in a config.
+# REPLACES the existing addons_path/dbfilter lines instead of appending
+# duplicates — Odoo's configparser is strict and raises DuplicateOptionError
+# on a second occurrence, which crashes Odoo at startup.
 inject_project_block() {  # $1=conf $2=project_name $3=project_addons $4=dbfilter
   local conf="$1" name="$2" addons="$3" dbfilter="$4" base
+  # base = venv site-packages + deb core (deterministic, from the template)
+  base="$(venv_addons_dir),/usr/lib/python3/dist-packages/odoo/addons"
+  # Odoo's configparser is strict: one addons_path/dbfilter only, else it
+  # raises DuplicateOptionError and crashes at startup. Remove any prior
+  # block, drop existing lines, then write single occurrences.
   sed -i '/^# bedrock-project-begin/,/^# bedrock-project-end/d' "$conf"
-  base=$(grep -m1 '^addons_path' "$conf" | cut -d= -f2- | tr -d ' ')
+  sed -i '/^addons_path[[:space:]]*=/d; /^dbfilter[[:space:]]*=/d' "$conf"
   cat >> "$conf" <<EOF
 # bedrock-project-begin ($name)
 addons_path = $addons,$base

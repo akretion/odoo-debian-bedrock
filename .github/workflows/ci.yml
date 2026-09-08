@@ -153,7 +153,11 @@ jobs:
             [ "$code" = "200" ] || [ "$code" = "303" ] && break
           done
           echo "staging HTTP $code"
-          [ "$code" = "200" ] || [ "$code" = "303" ]
+          if [ "$code" != "200" ] && [ "$code" != "303" ]; then
+            echo "--- staging odoo log (boot failed) ---"
+            tail -40 /tmp/staging.log 2>/dev/null || true
+            exit 1
+          fi
 
   # Akretion's own tooling must stay installable on every distro we
   # support, independent of the Odoo install tests. docky (PyPI) + ak (git).
