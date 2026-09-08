@@ -20,6 +20,7 @@ export ODOO_VERSION ODOO_ADMIN_PASSWD OCA_ADDONS
 run() { echo "=== bedrock: $1 ==="; bash "scripts/$1"; }
 
 run 10-base.sh
+run 11-tools.sh
 run 20-postgres.sh
 run 30-odoo-deb.sh
 run 40-oca-venv.sh

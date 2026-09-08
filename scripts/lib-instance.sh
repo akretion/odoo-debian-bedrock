@@ -109,3 +109,15 @@ host    all             all             172.16.0.0/12           scram-sha-256
 EOF
   pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
 }
+
+# Install a CLI tool via pipx into a SHARED home (/opt/pipx) and
+# /usr/local/bin, so every user (notably `app`) sees it on PATH.
+# $1 = install spec (PyPI name or git+https URL), $2 = command to verify,
+# $3 = "1" to force reinstall (refresh from git) even if already present.
+install_pipx_tool() {
+  apt-get install -y -qq pipx
+  if [ "${3:-}" = "1" ] || ! command -v "$2" > /dev/null 2>&1; then
+    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install --force "$1" --include-deps
+  fi
+  command -v "$2" > /dev/null || { echo "ERROR: pipx install failed for $2" >&2; exit 1; }
+}

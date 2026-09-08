@@ -26,6 +26,7 @@ overlay of only 400 lines of idempotent shell scripts — no framework to learn.
 ```
 bin/bedrock            orchestrator: run all or selected steps
 scripts/10-base.sh     host hardening basics, unattended-upgrades
+scripts/11-tools.sh    pipx + ak (Akretion's addon-management CLI)
 scripts/20-postgres.sh postgresql (distro or PGDG)
 scripts/30-odoo-deb.sh nightly.odoo.com repo + odoo deb (apt-mark hold)
 scripts/40-oca-venv.sh venv --system-site-packages + odoo-stub + addons

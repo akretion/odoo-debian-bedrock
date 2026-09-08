@@ -14,13 +14,12 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# docky: Akretion's docker-compose wrapper. PEP 668 forbids a system-wide
-# pip3 install, so use pipx. PIPX_HOME/PIPX_BIN_DIR are SHARED (not the
-# default /root/.local) so the `app` user — which actually runs the
-# containers — sees the `docky` entry point on its PATH.
-apt-get install -y -qq pipx
-PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install docky --include-deps
-command -v docky > /dev/null || { echo "ERROR: docky install failed (layer 2 incomplete)" >&2; exit 1; }
+# docky: Akretion's docker-compose wrapper. Installed via pipx into the
+# shared /opt/pipx home so the `app` user (which runs the containers) sees
+# it. `ak` is already installed by 11-tools.sh on every install.
+# shellcheck source=lib-instance.sh
+source "$(dirname "$0")/lib-instance.sh"
+install_pipx_tool docky docky
 
 # app user runs the containers (matches our ansible/docky convention):
 id app &>/dev/null || adduser --disabled-password --gecos "" app
@@ -31,8 +30,6 @@ usermod -aG docker app
 # connect to host.docker.internal (the bridge gateway), so postgres must
 # listen on it and pg_hba must allow the docker subnet. External 5432 stays
 # closed by ufw (10-base.sh) and pg_hba scoping.
-# shellcheck source=lib-instance.sh
-source "$(dirname "$0")/lib-instance.sh"
 configure_pg_for_docker
 
 echo "layer 2 ready. For each docker project, create its PG role + db:"
