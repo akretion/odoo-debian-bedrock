@@ -22,11 +22,23 @@ run() { echo "=== bedrock: $1 ==="; bash "scripts/$1"; }
 run 10-base.sh
 run 11-tools.sh
 run 20-postgres.sh
-run 30-odoo-deb.sh
-run 40-oca-venv.sh
+if [ "$WITH_DOCKER" = 1 ]; then
+  # Layer 2: Odoo runs in containers (acsone/odoo-bedrock image + mounted
+  # source tarball), so the host deb/venv/backup are redundant and skipped.
+  # The image and the project bring their own Odoo runtime + backup; host
+  # nginx still proxies to the container's published 8069 below.
+  run 70-docker.sh
+else
+  # Layer 1: Odoo runs from the official deb on the host.
+  run 30-odoo-deb.sh
+  run 40-oca-venv.sh
+  run 60-backup.sh
+fi
 run 50-nginx.sh
-run 60-backup.sh
-[ "$WITH_DOCKER" = 1 ] && run 70-docker.sh
 [ -n "${PROJECT_NAME:-}" ] && run 80-project.sh
 
-echo "=== bedrock done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ==="
+if [ "$WITH_DOCKER" = 1 ]; then
+  echo "=== bedrock (layer 2) done. Docker host ready — deploy projects with docky. ==="
+else
+  echo "=== bedrock (layer 1) done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ==="
+fi

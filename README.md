@@ -17,9 +17,11 @@ overlay of only 400 lines of idempotent shell scripts — no framework to learn.
   Python deps. apt and pip never manage the same directory, so
   unattended-upgrades keeps working without breaking the install.
   This is the tier for small on-premise Odoo users or customers.
-- **Layer 2 (`--with-docker`):** everything from Layer 1 host prep,
-  plus Docker + docky for docker-compose based projects
-  (docky-odoo-template-shared). 
+- **Layer 2 (`--with-docker`):** host prep (hardening, ak, host postgres)
+  + Docker + docky. The Odoo *deb is skipped* — Odoo and its dependencies
+  come from the acsone/odoo-bedrock image (with the source tarball mounted),
+  so the host deb/venv/backup would be redundant. Host nginx still proxies
+  to the container's published 8069.
 
 ## Layout
 
