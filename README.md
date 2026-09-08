@@ -158,6 +158,14 @@ What this does:
   e.g. after adding an external-src repo).
 - scopes dbfilter to ^<project>.* and restarts odoo.
 
+## CI
+
+GitHub Actions (.github/workflows/ci.yml) runs on every push: a
+shellcheck lint job, plus a REAL install job that runs the bedrock
+scripts inside the actual distro container (ubuntu:24.04 + Odoo 18.0
+to start — extend the matrix for more combos), starts postgres,
+installs l10n_br_base on a fresh db, and checks Odoo serves HTTP.
+
 ## Why not pip --break-system-packages?
 
 pip and dpkg managing the same /usr/lib/python3/dist-packages

@@ -6,9 +6,10 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 install -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/$(. /etc/os-release; echo "$ID")/gpg \
+. /etc/os-release
+curl -fsSL "https://download.docker.com/linux/$ID/gpg" \
   | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release; echo "$ID") $(. /etc/os-release; echo "$VERSION_CODENAME") stable" \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" \
   > /etc/apt/sources.list.d/docker.list
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin

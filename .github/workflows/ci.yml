@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck (advisory for now)
+        run: |
+          sudo apt-get install -y shellcheck > /dev/null
+          shellcheck -S warning bin/bedrock install.sh scripts/*.sh
+
+  install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Start with one combo; extend with e.g. {image: debian:13, odoo: "18.0"}
+        include:
+          - image: ubuntu:24.04
+            odoo: "18.0"
+    container: ${{ matrix.image }}
+    steps:
+      # checkout needs git inside the container; install first
+      - name: bootstrap git/curl
+        run: apt-get update -qq && apt-get install -y -qq git curl ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: bedrock 10-base
+        run: bash scripts/10-base.sh
+
+      - name: bedrock 20-postgres
+        run: bash scripts/20-postgres.sh
+
+      - name: bedrock 30-odoo-deb
+        run: bash scripts/30-odoo-deb.sh
+        env:
+          ODOO_VERSION: ${{ matrix.odoo }}
+
+      - name: bedrock 40-oca-venv
+        run: bash scripts/40-oca-venv.sh
+        env:
+          ODOO_VERSION: ${{ matrix.odoo }}
+          ODOO_ADMIN_PASSWD: ci-admin
+          OCA_ADDONS: odoo-addon-l10n_br_base
+
+      - name: start postgres (no systemd in containers)
+        run: |
+          service postgresql start 2>/dev/null || \
+            pg_ctlcluster "$(ls /etc/postgresql | head -1)" main start
+          su -s /bin/bash postgres -c \
+            "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='odoo'\" | grep -q 1 || createuser -d -R -S odoo"
+          pg_lsclusters
+
+      - name: smoke test — install l10n_br_base on a fresh db
+        run: |
+          su -s /bin/bash odoo -c "\
+            /usr/lib/odoo/venv/bin/python3 /usr/bin/odoo \
+              -c /etc/odoo/odoo.conf -d ci_test \
+              -i l10n_br_base --stop-after-init --without-demo=all" 2>&1 | tee /tmp/smoke.log
+          grep -q "Module l10n_br_base loaded" /tmp/smoke.log
+          ! grep -E " ERROR |CRITICAL" /tmp/smoke.log
+
+      - name: smoke test — HTTP serves
+        run: |
+          su -s /bin/bash odoo -c "\
+            /usr/lib/odoo/venv/bin/python3 /usr/bin/odoo \
+              -c /etc/odoo/odoo.conf > /tmp/http.log 2>&1 &"
+          for i in $(seq 1 30); do
+            sleep 2
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8069/web/login || true)
+            [ "$code" = "200" ] || [ "$code" = "303" ] && break
+          done
+          echo "HTTP $code"
+          [ "$code" = "200" ] || [ "$code" = "303" ]
