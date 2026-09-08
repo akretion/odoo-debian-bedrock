@@ -17,6 +17,12 @@ BEDROCK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 apt-get install -y -qq python3-venv python3-pip
 python3 -m venv --system-site-packages "$VENV"
 
+# Odoo needs `packaging` to parse addon external_dependencies (e.g.
+# erpbrasil.base). The odoo deb doesn't declare it and some distros
+# (Ubuntu 24.04) don't ship it in the base python — pin it in the venv
+# where it's guaranteed and shadow-safe.
+"$VENV/bin/pip" install -q packaging
+
 # The deb ships no pip metadata, so odoo-addon-* would try to pull an
 # "odoo" package from PyPI. Install an empty stub dist named "odoo"
 # with the matching series version to satisfy the resolver.

@@ -35,7 +35,7 @@ EOF
   fi
 fi
 
-apt-get install -y odoo
+apt-get install -y odoo python3-packaging
 
 # wkhtmltopdf with patched Qt (required for proper report headers/footers;
 # the distro build is broken). Latest builds (0.12.6.1-3) ship only for
