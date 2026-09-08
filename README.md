@@ -294,6 +294,26 @@ cryptography/pyopenssl under your feet. The venv overlay gives pip a
 private site-packages that shadows the system one — same convenience,
 no fight.
 
+## Compatibility matrix
+
+The official deb + overlay, per distro Python (Odoo 19+ needs
+Python >= 3.12; the deb resolves the rest):
+
+| Distro                    | Python | Odoo 16 | 17 | 18 | 19 | 20 |
+|---------------------------|--------|---------|----|----|----|----|
+| Debian 12 (bookworm)      | 3.11   | OK      | OK | OK | no | no |
+| Debian 13 (trixie)        | 3.13   | no      | no | OK | OK | OK |
+| Ubuntu 22.04 LTS (jammy)  | 3.10   | OK      | OK | OK | no | no |
+| Ubuntu 24.04 LTS (noble)  | 3.12   | OK      | OK | OK | OK | OK |
+
+Notes:
+
+- On trixie the nightly deb still depends on the removed
+  python3-pypdf2 package — 30-odoo-deb.sh auto-installs a tiny equivs
+  shim (Odoo imports pypdf). Harmless elsewhere.
+- The nginx vhost adapts to the Odoo series automatically
+  (/websocket for >= 16, /longpolling/ for older).
+
 ---
 
 # Option B — Docker (acsone/odoo-bedrock image)
@@ -348,27 +368,6 @@ services:
 ---
 
 # Common to both options
-
-## Compatibility matrix
-
-The **venv (Option A)** matrix — the official deb + overlay, per distro
-Python (Odoo 19+ needs Python >= 3.12). The docker option follows the
-acsone/odoo-bedrock image's own matrix instead.
-
-| Distro                    | Python | Odoo 16 | 17 | 18 | 19 | 20 |
-|---------------------------|--------|---------|----|----|----|----|
-| Debian 12 (bookworm)      | 3.11   | OK      | OK | OK | no | no |
-| Debian 13 (trixie)        | 3.13   | no      | no | OK | OK | OK |
-| Ubuntu 22.04 LTS (jammy)  | 3.10   | OK      | OK | OK | no | no |
-| Ubuntu 24.04 LTS (noble)  | 3.12   | OK      | OK | OK | OK | OK |
-
-Notes:
-
-- On trixie the nightly deb still depends on the removed
-  python3-pypdf2 package — 30-odoo-deb.sh auto-installs a tiny equivs
-  shim (Odoo imports pypdf). Harmless elsewhere.
-- The nginx vhost adapts to the Odoo series automatically
-  (/websocket for >= 16, /longpolling/ for older).
 
 ## PostgreSQL tuning
 
