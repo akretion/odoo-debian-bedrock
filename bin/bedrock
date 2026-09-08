@@ -26,5 +26,6 @@ run 40-oca-venv.sh
 run 50-nginx.sh
 run 60-backup.sh
 [ "$WITH_DOCKER" = 1 ] && run 70-docker.sh
+[ -n "${PROJECT_NAME:-}" ] && run 80-project.sh
 
 echo "=== bedrock done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ==="

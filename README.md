@@ -133,6 +133,31 @@ rebuilds:
 4. bedrock's own scripts: re-run the install.sh one-liner (it
    self-updates /opt/odoo-debian-bedrock first).
 
+## Custom project (custom code)
+
+Projects with custom modules (repos carrying
+odoo/links, odoo/local-src, odoo/external-src, odoo/requirements.txt)
+attach to a bedrock host without changing the layout:
+
+```bash
+PROJECT_NAME=acme PROJECT_REPO=git@github.com:akretion/acme.git \
+  sudo -E bash /opt/odoo-debian-bedrock/scripts/80-project.sh
+```
+
+What this does:
+
+- keeps the 'app' user convention: clone at /home/app/<project>,
+  owned by app (deploy/SSH identity); the odoo runtime user only READS
+  the code (chmod a+rX). Not /home/odoo — the deb's odoo user has its
+  home at /var/lib/odoo and stays a pure runtime identity.
+- pip-installs odoo/requirements.txt into the bedrock venv
+  (odoo-addon-* pins resolve via the odoo stub).
+- PREPENDS odoo/links, odoo/local-src and every odoo/external-src/*
+  repo to addons_path, so customer code shadows the venv/deb addons
+  (the block in /etc/odoo/odoo.conf is idempotent — safe to re-run,
+  e.g. after adding an external-src repo).
+- scopes dbfilter to ^<project>.* and restarts odoo.
+
 ## Why not pip --break-system-packages?
 
 pip and dpkg managing the same /usr/lib/python3/dist-packages
