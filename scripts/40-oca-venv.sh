@@ -32,6 +32,15 @@ if [ -n "$OCA_ADDONS" ]; then
   "$VENV/bin/pip" install $OCA_ADDONS
 fi
 
+# The l10n-brazil chain can pull a newer cryptography than the distro's
+# python3-pyopenssl declares. Since the venv shadows dist-packages, just
+# upgrade the affected packages inside the venv:
+"$VENV/bin/pip" check -q 2>/dev/null || \
+  "$VENV/bin/pip" install -q --upgrade pyopenssl greenlet || true
+
+# NOTE: running module tests additionally needs test-only deps that
+# odoo-addon-* doesn't declare, e.g.: pip install xmldiff vcrpy
+
 # Discover where the venv's odoo/addons namespace dir is and wire the
 # addons_path + hardened config:
 PYVER=$("$VENV/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
