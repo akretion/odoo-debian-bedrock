@@ -22,11 +22,19 @@ BEDROCK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 sed -e "s/@DOMAIN@/$DOMAIN/g" -e "s|@WS_PATH@|$WS_PATH|" \
   "$BEDROCK_DIR/templates/nginx.conf" > /etc/nginx/sites-available/odoo
 ln -sf /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/odoo
-nginx -t && systemctl reload nginx
+
+# nginx config check; then reload a running master, or start one
+# (containers have no systemd/service, so plain `nginx` daemonizes).
+nginx -t
+if [ -f /run/nginx.pid ] && kill -0 "$(cat /run/nginx.pid)" 2>/dev/null; then
+  nginx -s reload
+else
+  nginx
+fi
 
 if [ -n "$CERTBOT_EMAIL" ]; then
   certbot --nginx -d "$DOMAIN" -m "$CERTBOT_EMAIL" --agree-tos -n --redirect
-  systemctl reload nginx
+  nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true
 else
   echo "nginx vhost installed for $DOMAIN."
   echo "For HTTPS: certbot --nginx -d $DOMAIN  (or set CERTBOT_EMAIL and re-run for unattended issuance)"

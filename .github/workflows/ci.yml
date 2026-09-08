@@ -92,6 +92,30 @@ jobs:
           echo "HTTP $code"
           [ "$code" = "200" ] || [ "$code" = "303" ]
 
+      - name: smoke test — nginx reverse proxy (port 80)
+        env:
+          ODOO_VERSION: ${{ matrix.odoo }}
+        run: |
+          # odoo (started fresh — a bg process doesn't survive across steps)
+          su -s /bin/bash odoo -c "\
+            /usr/lib/odoo/venv/bin/python3 /usr/bin/odoo \
+              -c /etc/odoo/odoo.conf > /tmp/http2.log 2>&1 &"
+          for i in $(seq 1 30); do
+            sleep 2
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8069/web/login || true)
+            [ "$code" = "200" ] || [ "$code" = "303" ] && break
+          done
+          # nginx vhost with a fake hostname (server_name odoo.test)
+          DOMAIN=odoo.test bash scripts/50-nginx.sh
+          # nginx should proxy :80 -> :8069; fake the Host header
+          for i in $(seq 1 15); do
+            sleep 2
+            code80=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: odoo.test" http://127.0.0.1/web/login || true)
+            [ "$code80" = "200" ] || [ "$code80" = "302" ] || [ "$code80" = "303" ] && break
+          done
+          echo "nginx HTTP $code80"
+          [ "$code80" = "200" ] || [ "$code80" = "302" ] || [ "$code80" = "303" ]
+
   # Akretion's own tooling must stay installable on every distro we
   # support, independent of the Odoo install tests. docky (PyPI) + ak (git).
   tools:
