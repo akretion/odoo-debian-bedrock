@@ -125,7 +125,9 @@ jobs:
           ODOO_VERSION: ${{ matrix.odoo }}
         run: |
           # minimal fixture project (a local git repo app-staging can clone)
-          rm -rf /tmp/fixproj && mkdir -p /tmp/fixproj/odoo/{links,local-src,external-src/server-tools}
+          # NOTE: container steps run under `sh` (dash) — no brace expansion.
+          rm -rf /tmp/fixproj
+          mkdir -p /tmp/fixproj/odoo/links /tmp/fixproj/odoo/local-src /tmp/fixproj/odoo/external-src/server-tools
           touch /tmp/fixproj/odoo/links/.keep /tmp/fixproj/odoo/local-src/.keep /tmp/fixproj/odoo/external-src/server-tools/.keep
           cd /tmp/fixproj && git init -q && git -c user.email=ci@ci -c user.name=ci add -A && git -c user.email=ci@ci -c user.name=ci commit -qm init
           PROJECT_NAME=fixproj PROJECT_REPO=/tmp/fixproj PROJECT_BRANCH= bash scripts/81-staging.sh
