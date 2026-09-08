@@ -20,10 +20,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Start with one combo; extend with e.g. {image: debian:13, odoo: "18.0"}
+        # Every README "OK" cell (Odoo 17 skipped; trixie+16 is "??" untested).
         include:
-          - image: ubuntu:24.04
-            odoo: "18.0"
+          - { name: "debian12-16", image: debian:12,  odoo: "16.0" }
+          - { name: "debian12-18", image: debian:12,  odoo: "18.0" }
+          - { name: "debian13-18", image: debian:13,  odoo: "18.0" }
+          - { name: "debian13-19", image: debian:13,  odoo: "19.0" }
+          - { name: "jammy-16",    image: ubuntu:22.04, odoo: "16.0" }
+          - { name: "jammy-18",    image: ubuntu:22.04, odoo: "18.0" }
+          - { name: "noble-16",    image: ubuntu:24.04, odoo: "16.0" }
+          - { name: "noble-18",    image: ubuntu:24.04, odoo: "18.0" }
+          - { name: "noble-19",    image: ubuntu:24.04, odoo: "19.0" }
+    name: install (${{ matrix.name }})
     container: ${{ matrix.image }}
     steps:
       # checkout needs git inside the container; install first
