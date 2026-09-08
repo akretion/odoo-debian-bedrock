@@ -5,10 +5,10 @@ Akretion's minimal on-premise, layered Odoo host installation for Debian/Ubuntu.
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
 image we already use in our optional docker installs)
 
-The idea: the official Odoo deb package gives you the boring 15%
+The idea: the official Odoo deb package gives you the boring 20%
 (system user, /etc/odoo/odoo.conf, postgres role, logrotate, base
-systemd unit). bedrock adds the production 85% as a thin, auditable
-overlay of only 300 lines of idempotent shell scripts — no framework to learn.
+systemd unit). bedrock adds the production 80% as a thin, auditable
+overlay of only 400 lines of idempotent shell scripts — no framework to learn.
 
 ## Layers
 
