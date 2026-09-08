@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "odoo"
 version = "@ODOO_VERSION@"
-description = "Stub marking the deb-installed Odoo for pip (odoo-bedrock)"
+description = "Stub marking the deb-installed Odoo for pip (odoo-debian-bedrock)"
 
 [tool.setuptools]
 py-modules = ["_odoo_deb_stub"]

@@ -37,9 +37,20 @@ fi
 
 apt-get install -y odoo
 
-# wkhtmltopdf (patched qt) for proper PDF reports: distro builds break
-# headers/footers. Install Odoo's own build per-distro; see
-# https://github.com/odoo/odoo/wiki/Wkhtmltopdf
+# wkhtmltopdf with patched Qt (required for proper report headers/footers;
+# the distro build is broken). Odoo's own builds, keyed by distro codename:
+. /etc/os-release
+case "${VERSION_CODENAME}" in
+  bookworm) WKURL="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.bookworm_$(dpkg --print-architecture).deb" ;;
+  noble)    WKURL="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.noble_$(dpkg --print-architecture).deb" ;;
+  *) echo "no wkhtmltox build known for ${VERSION_CODENAME}; skipping (reports will lack proper headers/footers)"; WKURL="" ;;
+esac
+if [ -n "$WKURL" ] && ! command -v wkhtmltopdf > /dev/null; then
+  wget -q "$WKURL" -O /tmp/wkhtmltox.deb && apt-get install -y /tmp/wkhtmltox.deb && rm -f /tmp/wkhtmltox.deb
+fi
+# (acsone/odoo-bedrock instead ships a kwkhtmltopdf CLIENT and runs the
+# renderer in a separate container — an option for layer 2/3 images.)
+
 
 # Never let apt bump Odoo silently: upgrades are a maintenance-window op:
 #   apt-mark unhold odoo && apt install odoo=<dated-build> && \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# odoo-bedrock orchestrator. Run as root on Debian 13 / Ubuntu 24.04+.
+# odoo-debian-bedrock orchestrator. Run as root on Debian 13 / Ubuntu 24.04+.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

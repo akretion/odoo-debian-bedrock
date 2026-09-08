@@ -1,6 +1,10 @@
-# odoo-bedrock
+# odoo-debian-bedrock
 
 Akretion's minimal, layered Odoo host installation for Debian/Ubuntu.
+
+(Not to be confused with acsone/odoo-bedrock, the excellent Docker base
+image we already use in our docky installs — that image remains the
+Layer 2/3 app runtime; odoo-debian-bedrock is the HOST layer beneath it.)
 
 The idea: the official Odoo deb package gives you the boring 15%
 (system user, /etc/odoo/odoo.conf, postgres role, logrotate, base
