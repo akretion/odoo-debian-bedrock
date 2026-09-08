@@ -24,6 +24,7 @@ install_pipx_tool docky docky
 # app user runs the containers (matches our ansible/docky convention):
 id app &>/dev/null || adduser --disabled-password --gecos "" app
 usermod -aG docker app
+ensure_deploy_key app
 
 # Make the HOST postgres reachable from containers over TCP (recommended
 # over socket mounting — see README "Docker + host Postgres"). Containers

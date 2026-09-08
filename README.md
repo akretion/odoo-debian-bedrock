@@ -156,6 +156,12 @@ What this does:
   e.g. after adding an external-src repo).
 - scopes dbfilter to ^<project>.* and restarts odoo.
 
+The deploy user gets a default ed25519 deploy key generated on first run
+(only if ~/.ssh/id_ed25519 doesn't already exist — never overwritten).
+The public key is printed so you can add it as a read-only deploy key on
+the project repo, letting `app`/`app-staging` pull private repos over SSH
+without stored credentials.
+
 ## Staging on the same host (multiple instances)
 
 A bedrock host can run several isolated Odoo instances sharing the one

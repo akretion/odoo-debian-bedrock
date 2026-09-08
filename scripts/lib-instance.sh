@@ -61,11 +61,29 @@ dbfilter = $dbfilter
 EOF
 }
 
+# Generate a default ed25519 deploy key for a user IF missing (never
+# overwrite a key the operator may have placed). Prints the public part so
+# it can be added as a repo deploy key.
+ensure_deploy_key() {  # $1 = username
+  local user="$1" home key
+  command -v ssh-keygen > /dev/null 2>&1 || apt-get install -y -qq openssh-client
+  home=$(getent passwd "$user" | cut -d: -f6)
+  [ -n "$home" ] && [ -d "$home" ] || return 0
+  key="$home/.ssh/id_ed25519"
+  if [ ! -f "$key" ]; then
+    # generate AS the user so ownership/perms are naturally correct
+    su -s /bin/bash "$user" -c "ssh-keygen -q -t ed25519 -N '' -C 'bedrock-deploy-$user' -f '$key'"
+  fi
+  echo "deploy key for '$user' (add the public part below as a repo deploy key):"
+  cat "$key.pub"
+}
+
 # Clone/pull the project as APP_USER, install requirements into VENV,
 # and wire the config. Reads env vars set by the caller.
 attach_project() {
   local proj="/home/$APP_USER/$PROJECT_NAME"
   id "$APP_USER" &>/dev/null || adduser --disabled-password --gecos "" "$APP_USER"
+  ensure_deploy_key "$APP_USER"
   if [ ! -d "$proj/.git" ]; then
     # shellcheck disable=SC2086
     su -s /bin/bash "$APP_USER" -c "git clone ${PROJECT_BRANCH:+--branch $PROJECT_BRANCH} $PROJECT_REPO $proj"
