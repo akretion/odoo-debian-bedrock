@@ -90,3 +90,22 @@ render_nginx() {  # $1=domain $2=ws_path $3=odooport $4=longpollport $5=outfile
       -e "s/@ODOO_PORT@/$3/g" -e "s/@LONGPOLLING_PORT@/$4/g" \
       "$BEDROCK_DIR/templates/nginx.conf" > "$5"
 }
+
+# Make host postgres reachable from docker containers over TCP
+# (listen_addresses='*' gated by pg_hba + ufw; see README).
+configure_pg_for_docker() {
+  local pgver pgconf pghba
+  pgver=$(ls /etc/postgresql | head -1)
+  pgconf="/etc/postgresql/$pgver/main/postgresql.conf"
+  pghba="/etc/postgresql/$pgver/main/pg_hba.conf"
+  if grep -qE '^[#]?listen_addresses' "$pgconf"; then
+    sed -i -E "s|^[#]?listen_addresses.*|listen_addresses = '*'|" "$pgconf"
+  else
+    echo "listen_addresses = '*'" >> "$pgconf"
+  fi
+  grep -q "172.16.0.0/12" "$pghba" || cat >> "$pghba" <<'EOF'
+# odoo-debian-bedrock: docker containers reach host postgres over TCP
+host    all             all             172.16.0.0/12           scram-sha-256
+EOF
+  pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
+}

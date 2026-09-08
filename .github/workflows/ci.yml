@@ -177,3 +177,31 @@ jobs:
           docky --help > /dev/null
           ak --help > /dev/null
           echo "docky and ak OK"
+
+  # A container: job can't run docker-in-docker, so this runs on the host
+  # runner (which has a real docker daemon). Verifies the layer-2 pattern:
+  # a container reaches HOST postgres over host.docker.internal (bridge
+  # gateway), which is exactly what 70-docker.sh's configure_pg_for_docker
+  # makes possible.
+  docker-pg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install host postgres + configure for docker
+        run: |
+          sudo bash scripts/20-postgres.sh
+          sudo bash -c 'source scripts/lib-instance.sh && configure_pg_for_docker'
+          sudo pg_ctlcluster "$(ls /etc/postgresql | head -1)" main start
+
+      - name: create role + database
+        run: |
+          sudo su - postgres -c "psql -c \"CREATE ROLE myproj LOGIN CREATEDB PASSWORD 's3cret'\""
+          sudo su - postgres -c "createdb -O myproj myproj"
+
+      - name: connect from a docker container over host-gateway
+        run: |
+          docker run --rm --add-host host.docker.internal:host-gateway \
+            -e PGPASSWORD=s3cret --entrypoint psql \
+            postgres:16-alpine -h host.docker.internal -U myproj -d myproj \
+            -c "SELECT 'docker->host-pg ok' AS check;"
