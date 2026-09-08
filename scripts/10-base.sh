@@ -25,6 +25,10 @@ Unattended-Upgrade::Allowed-Origins {
 EOF
 dpkg-reconfigure -f noninteractive unattended-upgrades || true
 
-ufw allow OpenSSH
-ufw allow 'Nginx Full'
+# Port-based rules (app profiles like 'OpenSSH' only exist once
+# openssh-server is installed — port rules are profile-independent
+# and container-safe). `|| true`: containers lack netfilter caps.
+ufw allow 22/tcp || true
+ufw allow 80/tcp || true
+ufw allow 443/tcp || true
 ufw --force enable || true
