@@ -17,11 +17,12 @@ overlay of only 400 lines of idempotent shell scripts — no framework to learn.
   Python deps. apt and pip never manage the same directory, so
   unattended-upgrades keeps working without breaking the install.
   This is the tier for small on-premise Odoo users or customers.
-- **Layer 2 (`--with-docker`):** host prep (hardening, ak, host postgres)
-  + Docker + docky. The Odoo *deb is skipped* — Odoo and its dependencies
-  come from the acsone/odoo-bedrock image (with the source tarball mounted),
-  so the host deb/venv/backup would be redundant. Host nginx still proxies
-  to the container's published 8069.
+- **Layer 2 (`--with-docker`):** host prep (hardening, ak, host postgres,
+  backup) + Docker + docky. The Odoo *deb is skipped* — Odoo and its
+  dependencies come from the acsone/odoo-bedrock image (with the source
+  tarball mounted), so the host deb/venv would be redundant. Host nginx
+  still proxies to the container's published 8069; backup still runs
+  (point FILESTORE_DIR at the container's mounted filestore volume).
 
 ## Layout
 
@@ -70,6 +71,7 @@ export OCA_ADDONS="odoo-addon-mis_builder odoo-addon-web_responsive"
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
+export FILESTORE_DIR=/home/app/soleio/data/filestore  # docker: mounted filestore volume (backup)
 
 # PostgreSQL tuning overrides (RAM-dependent defaults are auto-sized):
 export PG_SHARED_BUFFERS=2GB        # default: 25% RAM (cap 8GB)
