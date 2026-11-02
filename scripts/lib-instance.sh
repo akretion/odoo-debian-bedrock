@@ -117,6 +117,40 @@ render_nginx() {  # $1=domain $2=ws_path $3=odooport $4=longpollport $5=outfile
       "$BEDROCK_DIR/templates/nginx.conf" > "$5"
 }
 
+# Cluster that actually serves the databases: the online one, else the
+# newest major installed. NEVER `ls /etc/postgresql | head -1`: after a
+# pg_upgradecluster the old cluster is kept, so that returns the unused
+# major and the tuning lands in the wrong cluster.
+pg_running_version() {
+  local v
+  v=$(pg_lsclusters --no-header 2>/dev/null | awk '$4 == "online" {print $1; exit}')
+  [ -n "$v" ] || v=$(ls /etc/postgresql 2>/dev/null | sort -n | tail -1)
+  echo "$v"
+}
+
+# Let the Odoo runtime user reach postgres over the unix socket with peer
+# auth. Debian ships `local all all peer`, but hardened and legacy hosts
+# often do not -- and then Odoo cannot even create its own database:
+#   FATAL: no pg_hba.conf entry for host "[local]", user "odoo"
+# First matching line wins in pg_hba.conf, so a targeted role line added at
+# the end is enough and does not open the cluster to other roles.
+ensure_pg_peer_role() {  # $1 = role
+  local role="${1:-}" pgver hba
+  [ -n "$role" ] || return 0
+  pgver=$(pg_running_version)
+  [ -n "$pgver" ] || return 0
+  hba="/etc/postgresql/$pgver/main/pg_hba.conf"
+  [ -f "$hba" ] || return 0
+  if ! grep -qE "^[[:space:]]*local[[:space:]]+all[[:space:]]+${role}[[:space:]]+peer" "$hba"; then
+    printf '\n# odoo-debian-bedrock: runtime user over the unix socket (peer auth)\nlocal   all             %s%s peer\n' \
+      "$role" "$(printf '%*s' $((17 - ${#role})) '')" >> "$hba"
+    chown postgres:postgres "$hba" 2>/dev/null || true
+    chmod 640 "$hba" 2>/dev/null || true
+    pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
+    echo "pg_hba: added 'local all $role peer'"
+  fi
+}
+
 # Odoo-oriented postgres tuning into conf.d/bedrock.conf. The fixed defaults
 # are safe for SSD + Odoo's write churn; override each via PG_* env vars, or
 # append arbitrary settings via PG_EXTRA_CONF (one "key = value" per line —
@@ -125,7 +159,8 @@ render_nginx() {  # $1=domain $2=ws_path $3=odooport $4=longpollport $5=outfile
 # is opened only on layer 2 by configure_pg_for_docker.
 configure_pg_tuning() {
   local pgver confdir conffile mem_mb sb ecs wm mwm
-  pgver=$(ls /etc/postgresql | head -1)
+  pgver=$(pg_running_version)
+  [ -n "$pgver" ] || { echo "no postgres cluster found; skipping tuning" >&2; return 0; }
   confdir="/etc/postgresql/$pgver/main/conf.d"
   conffile="$confdir/bedrock.conf"
   mkdir -p "$confdir"
@@ -170,7 +205,8 @@ configure_pg_tuning() {
 # (listen_addresses='*' gated by pg_hba + ufw; see README).
 configure_pg_for_docker() {
   local pgver pgconf pghba
-  pgver=$(ls /etc/postgresql | head -1)
+  pgver=$(pg_running_version)
+  [ -n "$pgver" ] || { echo "no postgres cluster found; skipping" >&2; return 0; }
   pgconf="/etc/postgresql/$pgver/main/postgresql.conf"
   pghba="/etc/postgresql/$pgver/main/pg_hba.conf"
   if grep -qE '^[#]?listen_addresses' "$pgconf"; then

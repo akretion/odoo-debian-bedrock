@@ -22,7 +22,9 @@ RUNTIME_USER=odoo
 # shellcheck disable=SC2034
 VENV=/usr/lib/odoo/venv
 ODOO_CONF=/etc/odoo/odoo.conf
-DBFILTER="^${PROJECT_NAME}.*"
+# Override when the databases don't share the project name (e.g. a v12 DB
+# called 'database1' and its v18 successor 'database2' in the same project).
+DBFILTER="${PROJECT_DBFILTER:-^${PROJECT_NAME}.*}"
 # shellcheck disable=SC2034
 UNIT=odoo
 

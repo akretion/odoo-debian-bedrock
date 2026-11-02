@@ -46,6 +46,7 @@ id "$RUNTIME_USER" &>/dev/null || adduser --system --group --home "/var/lib/$RUN
 id "$APP_USER" &>/dev/null || adduser --disabled-password --gecos "" "$APP_USER"
 # Separate PG role (needs a running postgres; guard for proot/container).
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\" | grep -q 1 || createuser -d -R -S $DB_USER" 2>/dev/null || true
+ensure_pg_peer_role "$DB_USER"
 install -d -o "$RUNTIME_USER" -g "$RUNTIME_USER" "$LOG_DIR"
 
 make_venv

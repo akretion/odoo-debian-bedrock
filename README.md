@@ -69,6 +69,9 @@ export ODOO_VERSION=18.0          # odoo series to install
 export ODOO_ADMIN_PASSWD=...      # odoo master password (random if unset)
 export OCA_ADDONS="odoo-addon-mis_builder odoo-addon-web_responsive"
 export ODOO_APT_HOLD=1            # pin the deb (managed fleets); default: no hold
+export ODOO_PORT=8069             # venv instance HTTP port (nginx upstream)
+export LONGPOLLING_PORT=8072      # gevent/websocket port (nginx upstream)
+export HTTP_INTERFACE=127.0.0.1   # bind loopback: nginx is the front door
 ```
 
 Common to both:
@@ -77,6 +80,10 @@ Common to both:
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
 export PGDG=1                     # use postgresql.org repo instead of distro PG
+export PG_MAJOR=18                # PGDG: explicit major (default: newest in PGDG)
+# Never `apt install postgresql` on a PGDG host: that metapackage is the
+# newest major AND depends on postgresql-all (every major 10..18 + dev
+# headers + LLVM/clang, ~2.5 GB). The script installs postgresql-$PG_MAJOR.
 
 # PostgreSQL tuning overrides (RAM-dependent defaults are auto-sized):
 export PG_SHARED_BUFFERS=2GB        # default: 25% RAM (cap 8GB)
@@ -144,7 +151,9 @@ What this does:
   repo to addons_path, so customer code shadows the venv/deb addons
   (the block in /etc/odoo/odoo.conf is idempotent — safe to re-run,
   e.g. after adding an external-src repo).
-- scopes dbfilter to ^<project>.* and restarts odoo.
+- scopes dbfilter to ^<project>.* (override with PROJECT_DBFILTER when the
+  databases don't carry the project name, e.g.
+  PROJECT_DBFILTER='^(database1|database2).*') and restarts odoo.
 
 The deploy user gets a default ed25519 deploy key generated on first run
 (only if ~/.ssh/id_ed25519 doesn't already exist — never overwritten).
@@ -369,6 +378,37 @@ services:
 
 # Common to both options
 
+## PostgreSQL major upgrade (keeping the data)
+
+`20-postgres.sh` installs binaries only; it never touches an existing
+cluster. To move a live cluster to a new major, on a host where both majors
+are installed:
+
+```bash
+pg_lsclusters                                   # note the online cluster + port
+pg_upgradecluster --check -v 18 15 main         # validates packages/extension bumps
+time pg_upgradecluster --method=upgrade -v 18 15 main
+```
+
+- `--method=upgrade` is pg_upgrade with a full COPY: the old cluster stays
+  intact (moved to the next free port, `start.conf=manual`), so rollback is
+  `pg_dropcluster 18 main` + `pg_ctlcluster 15 main start` after restoring
+  its port. Needs free space for a second copy of the data.
+- `--method=dump` (the default) is a pg_dumpall/restore: slower, safest.
+- Checksums are handled: postgresql-common adds `--no-data-checksums` for
+  18+ when the old cluster has none (18 enables them in initdb by default).
+- Extensions must exist for the new major; contrib ships inside the
+  postgresql-NN package on PGDG, `postgresql-contrib-NN` on some distros.
+- Test the app before `pg_dropcluster` on the old major, and only then purge
+  the retired binaries/dev packages.
+
+## nginx never hijacks a live domain
+
+`50-nginx.sh` refuses to render a vhost whose `server_name` is already
+declared by another enabled site (nginx would silently serve whichever
+duplicate block loads first — typically how a fresh, empty instance takes
+over a production domain). Deliberate takeover: `FORCE_NGINX=1`.
+
 ## PostgreSQL tuning
 
 `20-postgres.sh` writes an Odoo-oriented drop-in at
@@ -389,6 +429,10 @@ Fixed defaults:
 - autovacuum_max_workers = 4
 - autovacuum_vacuum_scale_factor = 0.05  (aggressive cleanup)
 - autovacuum_analyze_scale_factor = 0.02  (fresher stats)
+
+The tuning always targets the cluster that is ONLINE (fallback: newest
+major installed) — never "the first directory in /etc/postgresql", which
+after a major upgrade is the retired cluster.
 
 Every value is overridable via a PG_* env var (see the environment
 variables section), e.g. `PG_SHARED_BUFFERS=2GB`. Anything else — or a
