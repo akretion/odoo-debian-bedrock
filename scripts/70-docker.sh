@@ -34,5 +34,6 @@ ensure_deploy_key app
 configure_pg_for_docker
 
 echo "layer 2 ready. For each docker project, create its PG role + db:"
-echo "  DB_NAME=<project> DB_PASSWORD=<secret> bash scripts/72-pg-docker-user.sh"
+echo "  DB_NAME=<project> bash scripts/72-pg-docker-user.sh"
+echo "  (writes /etc/odoo/db-credentials-<project>.env: DB_* for the app, PG* for psql/CI/dokku)"
 

@@ -348,20 +348,25 @@ postgres over TCP — not by mounting the socket. Why:
   `unix_socket_directories`, container images, or where PG moves later.
 
 `70-docker.sh` prepares the host: postgres listens on `*` and pg_hba allows
-the docker bridge subnet (172.16.0.0/12) with scram-sha-256. External 5432
-stays closed by ufw (10-base.sh) and the pg_hba scoping — so `*` is not an
-open door.
+the docker bridge subnet (172.16.0.0/12) using the cluster's own
+`password_encryption` policy (`md5` or `scram-sha-256` — inherited clusters
+often force md5 in a `conf.d` file, and a `scram-sha-256` line then rejects
+every role created under the md5 policy). External 5432 stays closed by ufw
+(10-base.sh) and the pg_hba scoping — so `*` is not an open door.
 
 Per project, create a role + database:
 
 ```bash
-DB_NAME=myproj DB_PASSWORD=<secret> \
-  sudo -E bash /opt/odoo-debian-bedrock/scripts/72-pg-docker-user.sh
+DB_NAME=myproj DB_USER=myproj bash scripts/72-pg-docker-user.sh
 ```
 
+The script generates a password when you don't pass one, resets it on every
+run (so the database and the file can never drift), and writes the credentials
+to `/etc/odoo/db-credentials-<db>.env` (0600, group `app`).
+
 Then in the project's docker-compose/docky config, point Odoo at the
-host via the bridge gateway (Linux docker doesn't auto-provide
-`host.docker.internal`, so add it explicitly):
+host via the bridge gateway (plain Linux docker doesn't auto-provide
+`host.docker.internal`, so add it explicitly — **dokku does it for you**):
 
 ```yaml
 services:
@@ -373,6 +378,39 @@ services:
       DB_USER: myproj
       DB_PASSWORD: ${DB_PASSWORD}
 ```
+
+## Database credentials: which prefix does what
+
+Three naming schemes coexist and mixing them up is the usual docky/dokku
+integration bug. `/etc/odoo/db-credentials-<db>.env` carries all of the
+meaningful ones, so a project (or a CI job) can source one file:
+
+| prefix | read by | note |
+|---|---|---|
+| `DB_*` (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_FILTER`) | the Odoo container / app | the docky compose files map the `PG*` values into these |
+| `PG*` (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) | libpq: `psql`, CI job env, `dokku --env-file`, `pg_dump` | the deployment-env convention (Jung, Airandme CI) |
+| `POSTGRES_*` (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`) | a **postgres server container** bootstrap | NOT for the Odoo app — this is the docker `postgres` image's own contract |
+
+`72-pg-docker-user.sh` accepts `DB_*` **or** `PG*` on input (PG\* wins) and
+emits both on output; nothing in bedrock reads `POSTGRES_*`.
+
+**Peer auth or password?** The venv instance uses peer auth over the unix
+socket (`db_host = False`) and needs no password at all. Containers cannot use
+peer auth (their uid never matches a PG role), so they need a password. To let
+a container reuse the *same* runtime role as a venv instance — the step that
+prepares a dokku deployment of a project that already runs on the deb — give
+that role a password explicitly:
+
+```bash
+RUNTIME_DB_PASSWORD=<secret> RUNTIME_DB_NAME=myproj \
+  sudo -E bash scripts/20-postgres.sh
+# writes /etc/odoo/db-credentials.env, leaves odoo.conf on peer auth
+```
+
+The password is stored as SCRAM even when the cluster policy is md5: a SCRAM
+verifier also authenticates through a pg_hba line that says `md5`, whereas an
+md5 verifier does not survive a `scram-sha-256` line. Setting a password is
+additive and needs no restart — the running instance keeps using the socket.
 
 ---
 
