@@ -3,6 +3,35 @@
 Status: PROPOSAL, not implemented. Nothing in this document has been applied to
 a host yet. Written after the tecservice18 bedrock standardization.
 
+### Update — decisions taken after inspecting dokku on the host
+
+- **Staging is a dokku app, not a venv instance** (§9 keeps the analysis, the
+  decision supersedes it). No self-hosted GitHub runner is installed (§8 is the
+  checklist if we ever need one).
+- The deploy trigger is a **GitHub-hosted job** that pushes to dokku with a key
+  restricted to one repository, so untrusted branch code never runs on the
+  customer host.
+- dokku 0.38.34 is already installed there with two Odoo apps building from a
+  Dockerfile, and it injects `host.docker.internal` (host-gateway) into every
+  app container — verified.
+- **A plain dokku key is not a narrow credential**: `authorized_keys` entries
+  run `dokku $SSH_ORIGINAL_COMMAND`, so any key can read every app's config
+  (`config:show`, i.e. the DB passwords) and bind-mount arbitrary host paths.
+  The CI key must therefore be a hand-written line pinning
+  `git-receive-pack '/home/dokku/<app>'`.
+- **The prod database role now has a password** so a container can use the same
+  role and database: `odoo` carries a SCRAM verifier, and
+  `/etc/odoo/db-credentials.env` (0600 root) holds `DB_*` + `PG*`. The venv
+  instance keeps peer auth over the socket (`db_host = False`), so nothing
+  about prod changed operationally. Verified: a container authenticates as
+  `odoo` over 172.17.0.1; the running instance still logs in over the socket.
+- bedrock now ships that support: `set_role_password()` + `write_db_credentials()`
+  in lib-instance, `72-pg-docker-user.sh` accepting `DB_*` or `PG*` and writing
+  the file, and `RUNTIME_DB_PASSWORD` as an opt-in in `20-postgres.sh`.
+- Consequence for §11 decision 1/3/5: the dokku scripts stay **host-local**
+  (not committed to the shared repo); the repo only gains the credential and
+  seed helpers that dokku needs to consume.
+
 ## 1. Goal
 
 Give every non-production consumer of a customer's data a **cheap, disposable,
@@ -256,9 +285,12 @@ access to its own filestore directory, and a read-only deploy key. Nothing else.
 Verify with `id`, `\du`, and by trying the forbidden operations once
 (`psql -d tecservice18 -c 'select 1'` must fail).
 
-## 9. Staging instance: venv, not dokku
+## 9. Staging instance: dokku app (superseded — see the update at the top)
 
-Recommendation: **venv instance via `81-staging.sh`**, owned by `odoo-staging`.
+The dokku decision replaces the recommendation below; the arguments are kept
+because they bound the fallback if dokku proves unsuitable for a customer.
+
+Original reasoning for a **venv instance via `81-staging.sh`**, owned by `odoo-staging`:
 
 - same core deb as prod, so a staging bug is not an image bug;
 - independent venv → independent odoo-addon pins per branch, which is the whole
@@ -286,7 +318,7 @@ existing containers do).
    render `max_cron_threads = 0` in the instance conf; optional
    `STAGING_BASIC_AUTH=user:pass` on the vhost until the customer is invited.
 3. **`templates/odoo-instance.conf`**: add `max_cron_threads = @MAX_CRON_THREADS@`.
-4. **`scripts/74-gh-runner.sh`** (new, optional but recommended): installs an
+4. **`scripts/74-gh-runner.sh`** — NOT part of the decision (dokku path chosen); keep any runner work host-local. If it is ever written: installs an
    `--ephemeral` runner as a dedicated user, with the §8 checklist enforced and
    printed (repo settings the script cannot do from the host: environment
    reviewers, fork-PR policy).
