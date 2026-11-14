@@ -111,11 +111,14 @@ export PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR=0.02
 export PG_EXTRA_CONF="max_connections = 200"
 ```
 
-Option C — hosted apps only:
+Options B / C — container tiers:
 
 ```bash
-export HOSTED_APPS_INSTALLER=/path/to/installer.sh  # private control plane installer
+export HOSTED_APPS_INSTALLER=/path/to/installer.sh  # private control plane installer (C)
 export DOCKY=1                    # 0 skips the docky compose wrapper (--with-paas does)
+export DOCKY_SPEC=git+https://github.com/akretion/docky@fix-py3-wheel-tag
+                                  # how docky is installed; `docky` once a fixed
+                                  # PyPI release exists, or the commit SHA to pin
 export PG_ALLOW_RESTART=1         # 0: write listen_addresses but never restart postgres
 ```
 

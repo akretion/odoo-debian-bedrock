@@ -11,6 +11,14 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 : "${DOCKY:=1}"
+# docky install spec. The PyPI release ships `[bdist_wheel] python_tag = py310`
+# in setup.cfg, which modern pip converts to the invalid tag `py34+` and then
+# refuses ("Built wheel for docky is invalid: Invalid wheel filename (invalid
+# tag component)"), taking the whole layer down on Ubuntu 26.04 / Python 3.14.
+# Until a fixed release is on PyPI, install the branch that drops it. Set
+# DOCKY_SPEC=docky once that release exists; pin the commit
+# (git+https://github.com/akretion/docky@714eb68) for a frozen install.
+: "${DOCKY_SPEC:=git+https://github.com/akretion/docky@fix-py3-wheel-tag}"
 
 install -d /etc/apt/keyrings
 . /etc/os-release
@@ -27,7 +35,7 @@ apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plug
 # shellcheck source=lib-instance.sh
 source "$(dirname "$0")/lib-instance.sh"
 if [ "$DOCKY" = 1 ]; then
-  install_pipx_tool docky docky
+  install_pipx_tool "$DOCKY_SPEC" docky
 else
   echo "DOCKY=0: skipping docky (a hosted-apps host builds the image, it does not run compose)"
 fi
