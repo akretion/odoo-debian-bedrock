@@ -163,7 +163,7 @@ pg_password_encryption() {
   echo "$enc"
 }
 
-# Give a role a password so a CONTAINER (docky/dokku) can reach host postgres
+# Give a role a password so a CONTAINER (docky / hosted apps) can reach host postgres
 # over TCP. Additive: the venv instance keeps using peer auth over the unix
 # socket, so its conf keeps db_host = False and this changes nothing for it.
 # The password is always stored as SCRAM: a SCRAM verifier ALSO authenticates
@@ -183,10 +183,10 @@ set_role_password() {  # $1 = role, $2 = password
 }
 
 # Credentials file consumed by containers. Three naming schemes are in play
-# and mixing them up is the usual docky/dokku integration bug:
+# and mixing them up is the usual docky / hosted-apps integration bug:
 #   DB_*        what the Odoo app/container reads (the docky compose files map
 #               PGHOST/PGDATABASE/PGUSER/PGPASSWORD into these)
-#   PG_*        libpq standard: psql, CI job env, `dokku --env-file`
+#   PG_*        libpq standard: psql, CI job env, a hosted-apps --env-file
 #   POSTGRES_*  bootstraps a *postgres server container*; never an Odoo app
 write_db_credentials() {  # $1=db $2=user $3=password $4=file [$5=docker host name]
   local db="$1" user="$2" pw="$3" file="$4" dbhost="${5:-host.docker.internal}"
@@ -200,11 +200,12 @@ write_db_credentials() {  # $1=db $2=user $3=password $4=file [$5=docker host na
 # NOT read by the venv instance, which uses peer auth over the unix socket
 # (db_host = False in its odoo.conf).
 #
-#   DB_*  = what the Odoo app/container consumes (docky/dokku compose maps them)
-#   PG_*  = libpq standard: psql, CI env, dokku --env-file
+#   DB_*  = what the Odoo app/container consumes (the docky compose maps them)
+#   PG_*  = libpq standard: psql, CI env, a hosted-apps env file
 #   POSTGRES_* is a different contract (bootstrap of a postgres SERVER
 #   container) and must not be used for the Odoo application.
-# dokku injects host.docker.internal (host-gateway) into every app container; a
+# a hosted-apps control plane injects host.docker.internal (host-gateway) into
+# every app container; a
 # bare `docker run` needs --add-host host.docker.internal:host-gateway, else
 # use PGHOST (the bridge gateway) instead.
 DB_HOST=${dbhost}
@@ -276,27 +277,71 @@ configure_pg_tuning() {
 
 # Make host postgres reachable from docker containers over TCP
 # (listen_addresses='*' gated by pg_hba + ufw; see README).
+#
+# Two traps here, both silent:
+#  * listen_addresses is a POSTMASTER parameter. A reload logs "parameter
+#    cannot be changed without restarting the server" and the container keeps
+#    getting `connection refused` on the bridge gateway — indistinguishable
+#    from a dead postgres. Restart the cluster once, only when the running
+#    value is not already '*', so re-runs are free (PG_ALLOW_RESTART=0 defers
+#    it and says so).
+#  * pg_hba.conf is FIRST-MATCH. Appending the rule to a hardened host puts it
+#    behind `hostnossl all all 0.0.0.0/0 reject`, where it never fires; insert
+#    it before the first catch-all reject and after the specific per-database
+#    lines (a legacy container may still need md5).
 configure_pg_for_docker() {
-  local pgver pgconf pghba method
+  local pgver pgconf pghba method before restart_ok
   pgver=$(pg_running_version)
   [ -n "$pgver" ] || { echo "no postgres cluster found; skipping" >&2; return 0; }
   pgconf="/etc/postgresql/$pgver/main/postgresql.conf"
   pghba="/etc/postgresql/$pgver/main/pg_hba.conf"
+
+  before=$(su - postgres -c "psql -tAc 'show listen_addresses'" 2>/dev/null | tr -d '[:space:]')
   if grep -qE '^[#]?listen_addresses' "$pgconf"; then
     sed -i -E "s|^[#]?listen_addresses.*|listen_addresses = '*'|" "$pgconf"
   else
     echo "listen_addresses = '*'" >> "$pgconf"
   fi
+
   # Follow the cluster's password policy. Hardcoding scram-sha-256 here is a
   # real outage: on a host where an operator conf.d file forces md5 (common on
   # inherited clusters) every role created by 72-pg-docker-user.sh gets an md5
   # verifier, and an md5 verifier is rejected by a scram-sha-256 line.
   method=$(pg_password_encryption)
-  grep -q "172.16.0.0/12" "$pghba" || cat >> "$pghba" <<EOF
-# odoo-debian-bedrock: docker containers reach host postgres over TCP
-host    all             all             172.16.0.0/12           $method
-EOF
-  pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
+  if ! grep -q "172.16.0.0/12" "$pghba"; then
+    awk -v method="$method" '
+      BEGIN { done = 0 }
+      !done && /^[[:space:]]*host(nossl|ssl)?[[:space:]]+all[[:space:]]+all[[:space:]]+(0\.0\.0\.0\/0|::\/0)[[:space:]]+reject/ {
+        print "# odoo-debian-bedrock: docker containers reach host postgres over TCP"
+        print "host    all             all             172.16.0.0/12           " method
+        done = 1
+      }
+      { print }
+      END {
+        if (!done) {
+          print "# odoo-debian-bedrock: docker containers reach host postgres over TCP"
+          print "host    all             all             172.16.0.0/12           " method
+        }
+      }' "$pghba" > "$pghba.bedrock-new" \
+      && mv "$pghba.bedrock-new" "$pghba"
+    chown postgres:postgres "$pghba" 2>/dev/null || true
+    chmod 640 "$pghba" 2>/dev/null || true
+  fi
+
+  restart_ok="${PG_ALLOW_RESTART:-1}"
+  if [ "$before" = "*" ]; then
+    pg_ctlcluster "$pgver" main reload 2>/dev/null || \
+      systemctl reload "postgresql@$pgver-main" 2>/dev/null || \
+      service postgresql reload 2>/dev/null || true
+  elif [ "$restart_ok" = 1 ]; then
+    echo "pg: listen_addresses '$before' -> '*' is postmaster-level: restarting cluster $pgver/main"
+    pg_ctlcluster "$pgver" main restart 2>/dev/null || \
+      systemctl restart "postgresql@$pgver-main" 2>/dev/null || \
+      service postgresql restart 2>/dev/null || true
+  else
+    echo "pg: PG_ALLOW_RESTART=0 — listen_addresses='*' is written but NOT active;" >&2
+    echo "    containers will get 'connection refused' until the cluster is restarted." >&2
+  fi
 }
 
 # Install a CLI tool via pipx into a SHARED home (/opt/pipx) and
