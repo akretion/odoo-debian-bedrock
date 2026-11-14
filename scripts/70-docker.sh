@@ -11,14 +11,9 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 : "${DOCKY:=1}"
-# docky install spec. The PyPI release ships `[bdist_wheel] python_tag = py310`
-# in setup.cfg, which modern pip converts to the invalid tag `py34+` and then
-# refuses ("Built wheel for docky is invalid: Invalid wheel filename (invalid
-# tag component)"), taking the whole layer down on Ubuntu 26.04 / Python 3.14.
-# Until a fixed release is on PyPI, install the branch that drops it. Set
-# DOCKY_SPEC=docky once that release exists; pin the commit
-# (git+https://github.com/akretion/docky@714eb68) for a frozen install.
-: "${DOCKY_SPEC:=git+https://github.com/akretion/docky@fix-py3-wheel-tag}"
+# docky install spec: read from scripts/docky-spec, the same file the CI `tools`
+# job installs, so what CI proves is what a host gets. Override with DOCKY_SPEC.
+: "${DOCKY_SPEC:=$(awk '!/^[[:space:]]*#/ && NF {print; exit}' "$(dirname "$0")/docky-spec")}"
 
 install -d /etc/apt/keyrings
 . /etc/os-release

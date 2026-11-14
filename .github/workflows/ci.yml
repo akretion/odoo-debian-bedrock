@@ -179,7 +179,12 @@ jobs:
       - name: install docky + ak
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          pipx install docky --include-deps
+          # the spec the substrate installs (scripts/docky-spec), not PyPI: the
+          # PyPI sdist builds an invalid `py34+` wheel and pip 26.x hard-fails on
+          # it, so installing `docky` here tests something no host ever installs.
+          docky_spec="$(awk '!/^[[:space:]]*#/ && NF {print; exit}' scripts/docky-spec)"
+          echo "docky spec: $docky_spec"
+          pipx install "$docky_spec" --include-deps
           pipx install git+https://github.com/akretion/ak --force --include-deps
 
       - name: smoke test — CLI entry points
