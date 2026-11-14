@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 72-pg-docker-user: create a PG role (+ SCRAM password) and database for ONE
-# container project (docky, docker compose, dokku) to reach host postgres over
+# container project (docky, docker compose, a hosted-apps control plane) to reach host postgres over
 # TCP, and write the credentials file the container consumes.
 #
 #   DB_NAME=myproj bash scripts/72-pg-docker-user.sh            # password generated
@@ -50,5 +50,5 @@ echo "container PG access ready:"
 echo "  db=$DB_NAME user=$DB_USER host=$DB_HOST_FOR_DOCKER port=5432"
 echo "  credentials: $CREDS_FILE (0640, group app)"
 echo "docky/docker compose: point PG* at it, the compose maps them to DB_*."
-echo "dokku: set -a; . $CREDS_FILE; set +a; \\"
-echo "  dokku config:set <app> DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_FILTER"
+echo "hosted apps: source the file and pass DB_* to the app config, e.g."
+echo "  set -a; . $CREDS_FILE; set +a; <control-plane CLI> config:set <app> DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_FILTER"

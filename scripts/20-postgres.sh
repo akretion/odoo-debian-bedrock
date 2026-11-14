@@ -50,7 +50,7 @@ su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='odoo'\" | gr
 # ... and let that role actually log in over the unix socket (peer auth).
 ensure_pg_peer_role "${PG_RUNTIME_ROLE:-odoo}"
 
-# Optional: give the SAME runtime role a password, so a container (a dokku
+# Optional: give the SAME runtime role a password, so a container (a hosted-apps
 # deployment of this project, now or later) can use the existing role and
 # database instead of a second one. Unset by default: then no password exists
 # anywhere and the database is reachable only through the unix socket.
