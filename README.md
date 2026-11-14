@@ -1,15 +1,17 @@
 # odoo-debian-bedrock
 
-Akretion's minimal on-premise Odoo host installation for Debian/Ubuntu.
+Akretion's minimal substrate for hosting Odoo yourself — on a cloud VPS or onsite, on Debian/Ubuntu. Short, idempotent shell scripts you can read end to end: nothing to learn, a boring foundation you stay in control of and extend.
 
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
 image we use in the docker option below.)
 
-The idea: bedrock gives you a boring, auditable foundation — an overlay of
-~400 lines of idempotent shell scripts, no framework to learn — and lets
-you choose how Odoo itself runs: from the official `.deb` (with a venv for
-OCA addons), or inside Docker (acsone/odoo-bedrock image + a mounted source
-tarball).
+The idea: bedrock prepares the host — hardening, postgres, nginx, backups —
+and stays out of the way; you choose how Odoo itself runs: from the official
+`.deb` (with a venv for OCA addons), inside Docker (acsone/odoo-bedrock
+image + a mounted source tarball), or under a container control plane of
+your own (hosted apps). One deployment path runs roughly half the tree
+(~900 of ~1300 shell lines); the rest is the other options, which a given
+host never executes.
 
 ## Three install options
 
