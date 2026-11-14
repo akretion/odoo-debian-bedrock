@@ -43,6 +43,23 @@ if command -v ufw >/dev/null 2>&1; then
   ufw status | grep -E '5432' || true
 fi
 
+echo "=== doodba compat (opt-in — nothing doodba is installed here)"
+# Tecnativa/doodba projects (the doodba-copier-template, lefilament/
+# ansible_role_odoo_docker) are plain docker-compose stacks whose odoo service
+# is a project subimage built FROM tecnativa/doodba, talking libpq PG* to a
+# postgres over TCP. Everything one of those stacks needs from the HOST is
+# exactly what this substrate sets up — no doodba tooling lives here; the user
+# installs doodba themselves (copier template / their ansible role) on top:
+#   * docker engine + compose plugin            -> 70-docker.sh
+#   * host postgres reachable over TCP          -> configure_pg_for_docker
+#     (listen_addresses='*', pg_hba rule for 172.16.0.0/12 inserted before
+#     any catch-all reject, cluster restarted when needed)
+#   * ufw lets the docker subnet reach 5432     -> the rule above
+#   * libpq PG* credentials for the container   -> 72-pg-docker-user.sh
+# The template's own `db` service (postgres-autoconf container) is redundant
+# here: point the odoo service at the host postgres instead (see the note
+# printed at the end of this script).
+
 echo "=== deploy user + storage root"
 id app &>/dev/null || adduser --disabled-password --gecos "" app
 if getent group docker >/dev/null 2>&1; then
@@ -95,6 +112,16 @@ Per hosted app (the Odoo specifics no control plane can know):
     receives traffic ~10s after start, while the registry is still loading
   * keep 5432 and the chat port closed to the world: ufw already does, prove it
     with `ss -ltnp` rather than trusting the status output
+
+doodba (Tecnativa/doodba): a doodba-based project is just another
+  docker-compose stack and runs as-is on this substrate — install it yourself
+  (doodba-copier-template, lefilament/ansible_role_odoo_docker), build the
+  project subimage (FROM tecnativa/doodba) as the app user, give it a role+db
+  via 72-pg-docker-user.sh, point its odoo service at PGHOST=host.docker.internal
+  with the PG* values from /etc/odoo/db-credentials-<db>.env, and DROP the
+  template's own db service: the host postgres replaces it (add
+  extra_hosts: host.docker.internal:host-gateway, which a control plane does
+  automatically). Nothing to enable here: the wiring above is the whole door.
 TXT
 
 echo "=== bedrock: hosted-apps layer ready ==="

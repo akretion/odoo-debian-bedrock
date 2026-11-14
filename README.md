@@ -469,6 +469,47 @@ sudo HOSTED_APPS_INSTALLER=/root/install-control-plane.sh bash bin/bedrock --wit
 - the host nginx keeps its own vhosts in `sites-enabled/` while the control
   plane owns `conf.d/`, and `nginx -t` proves the two do not collide.
 
+### doodba compatibility (opt-in, DIY)
+
+A [doodba](https://github.com/Tecnativa/doodba) project (built with the
+[doodba-copier-template](https://github.com/Tecnativa/doodba-copier-template) or
+deployed with [lefilament's ansible role](https://github.com/lefilament/ansible_role_odoo_docker))
+is a plain docker-compose stack whose odoo service is a project subimage built
+`FROM tecnativa/doodba`, talking libpq `PG*` to a postgres over TCP. That is the
+same contract the container tiers already provide, so bedrock installs **no
+doodba tooling** — choosing doodba is like choosing docky: a decision the user
+makes on top of the substrate, and the doodba install itself (copier template,
+ansible role, subimage build) stays theirs. What the substrate already gives
+such a stack:
+
+- docker engine + compose plugin (`70-docker.sh`);
+- the host postgres reachable from containers over TCP
+  (`configure_pg_for_docker`: `listen_addresses`, pg_hba scoped to
+  172.16.0.0/12, ufw rule, cluster restart when the parameter really changes);
+- per-project `PG*` credentials in `/etc/odoo/db-credentials-<db>.env`
+  (`72-pg-docker-user.sh`) — which **are** doodba's own connection variables
+  (`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGHOST`), so the file can be passed to
+  compose as-is (`--env-file`).
+
+To run one, add the minimal overrides to the generated compose (the template
+otherwise ships its own `db` container, which is redundant on a bedrock host):
+
+```yaml
+services:
+  odoo:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      PGHOST: host.docker.internal   # was: the template's db service
+      # PGDATABASE / PGUSER / PGPASSWORD come from db-credentials-<db>.env
+    # and remove the `db` service + depends_on
+```
+
+Nothing to enable in bedrock for this: the hosted-apps wiring **is** the whole
+door, and it is exercised on every CI run by the `docker-pg` job (a container
+reaching the host postgres over the bridge gateway — exactly what a doodba
+stack does).
+
 It does **not** install docky (the compose wrapper belongs to Option B) or ak
 (the image aggregates its addons at build time), and it does not install the
 control plane unless `HOSTED_APPS_INSTALLER` points at one.
