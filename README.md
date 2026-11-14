@@ -451,17 +451,53 @@ opened only in the docker option (70-docker.sh), gated by pg_hba + ufw.
 
 ## Backups
 
-60-backup.sh installs a nightly cron (pg_dump in custom format + filestore
-tar, 14-day retention). Set RCLONE_REMOTE (e.g. `b2:backups/host`) for
-off-site copies. The filestore is auto-discovered, covering both options:
+60-backup.sh installs `/usr/local/bin/odoo-backup` plus a nightly cron
+(03:17) doing a `pg_dump -Fc` of the selected databases, a
+`pg_dumpall --globals-only` (roles/passwords, makes a bare restore
+possible) and a tar of the Odoo filestore(s).
+
+It is configured in **`/etc/odoo-backup.conf`**, created on the first run
+and never overwritten afterwards (re-running the script only refreshes the
+helper and the cron entry):
+
+```bash
+BACKUP_DBS="all"          # or: "prod_db other_db" — space-separated
+BACKUP_FILESTORE="yes"
+RETENTION_DAYS="7"
+RCLONE_REMOTE=""          # off-site copy, needs rclone
+EXTRA_FILESTORE_DIRS=""   # filestore dirs auto-discovery misses
+```
+
+Seed the database list directly on the first run:
+
+```bash
+sudo BACKUP_DBS=prod_db bash scripts/60-backup.sh
+```
+
+**Always list the real business databases instead of relying on `all`.**
+Shared and inherited hosts accumulate old copies, CI databases and
+vestigial prod DBs: dumping everything exhausts the disk in a night or two
+(the default is a safety net, not a backup platform — premium setups get
+gobackup/barman). With an explicit list, only the filestore
+sub-directories named after those databases are archived, which is where
+most of the volume usually sits.
+
+The filestore is auto-discovered, covering both options:
 
 - venv:  /var/lib/odoo/.local/share/Odoo/filestore
 - docker (dev):  /home/app/<project>/data/filestore
 - docker (prod): /home/app/data/<project>/filestore
 
 (the two docker shapes are the `./data/filestore` vs `~/data/<project>/filestore`
-conventions from the docky template). For an exotic layout, edit
-/usr/local/bin/odoo-backup after install.
+conventions from the docky template). Add `EXTRA_FILESTORE_DIRS` for an
+exotic layout.
+
+Retention is one knob for both kinds of archive; measure one night before
+raising it (the filestore tar is typically 20x the dump). Set
+`RCLONE_REMOTE` (e.g. `b2:backups/host`) so the archives leave the host.
+Run `journalctl`-free checking with `tail /var/log/odoo-backup.log` and a
+first manual `sudo /usr/local/bin/odoo-backup` — then confirm a restore:
+`pg_restore -l /var/backups/odoo/*-<db>.dump | head`.
 
 ## CI
 
