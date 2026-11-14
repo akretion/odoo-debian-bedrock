@@ -176,6 +176,9 @@ jobs:
           ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime 2>/dev/null || true
           apt-get update -qq && apt-get install -y -qq git curl ca-certificates pipx
 
+      # the job reads scripts/docky-spec, and checkout needs the git installed above
+      - uses: actions/checkout@v4
+
       - name: install docky + ak
         run: |
           export PATH="$HOME/.local/bin:$PATH"
