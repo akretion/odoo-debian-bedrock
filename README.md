@@ -11,7 +11,7 @@ you choose how Odoo itself runs: from the official `.deb` (with a venv for
 OCA addons), or inside Docker (acsone/odoo-bedrock image + a mounted source
 tarball).
 
-## Two install options
+## Three install options
 
 ```
 odoo-debian-bedrock
@@ -22,11 +22,17 @@ odoo-debian-bedrock
 │   ├─ host postgres
 │   └─ host nginx → 127.0.0.1:8069
 │
-└── Option B — DOCKER                  bin/bedrock --with-docker
-    ├─ docker + docky
-    ├─ odoo in a container (acsone/odoo-bedrock + mounted source)
-    ├─ host postgres (reached over the bridge)
-    └─ host nginx → container's 8069
+├── Option B — DOCKER                  bin/bedrock --with-docker
+│   ├─ docker + docky
+│   ├─ odoo in a container (acsone/odoo-bedrock + mounted source)
+│   ├─ host postgres (reached over the bridge)
+│   └─ host nginx → container's 8069
+│
+└── Option C — HOSTED APPS             bin/bedrock --with-paas
+    ├─ docker engine (no docky, no ak)
+    ├─ one containerised app per project, built from git by a control plane
+    ├─ host postgres (the same role/db a venv instance can share)
+    └─ host nginx serves each app; vhosts stay in sites-enabled/
 ```
 
 |                     | Option A — venv (default)                         | Option B — docker                              |
@@ -36,6 +42,12 @@ odoo-debian-bedrock
 | Postgres            | host (unix socket, peer auth)                      | host (TCP over the docker bridge)              |
 | Best for            | small on-prem, free users, the "viral" tier        | larger / multi-tenant / managed docker projects|
 | Command             | `bin/bedrock`                                      | `bin/bedrock --with-docker`                    |
+
+A third option, **hosted apps** (`bin/bedrock --with-paas`), prepares the same
+kind of host for a mini-PaaS control plane that builds one image per app and
+lets the host nginx serve it. It installs the docker engine plus the database
+wiring and **not** docky or ak: on that tier the build happens in the image.
+See "Option C" below.
 
 ## Quick start
 
@@ -74,7 +86,7 @@ export LONGPOLLING_PORT=8072      # gevent/websocket port (nginx upstream)
 export HTTP_INTERFACE=127.0.0.1   # bind loopback: nginx is the front door
 ```
 
-Common to both:
+Common to all:
 
 ```bash
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
@@ -99,18 +111,27 @@ export PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR=0.02
 export PG_EXTRA_CONF="max_connections = 200"
 ```
 
+Option C — hosted apps only:
+
+```bash
+export HOSTED_APPS_INSTALLER=/path/to/installer.sh  # private control plane installer
+export DOCKY=1                    # 0 skips the docky compose wrapper (--with-paas does)
+export PG_ALLOW_RESTART=1         # 0: write listen_addresses but never restart postgres
+```
+
 ## Layout
 
 ```
 bin/bedrock            orchestrator: run all or selected steps
 scripts/10-base.sh     host hardening basics, unattended-upgrades   [common]
-scripts/11-tools.sh    pipx + ak (Akretion's addon-management CLI)  [common]
+scripts/11-tools.sh    pipx + ak (Akretion's addon-management CLI)  [A,B]
 scripts/20-postgres.sh postgresql (distro or PGDG) + tuning         [common]
 scripts/30-odoo-deb.sh nightly.odoo.com repo + odoo deb             [A]
 scripts/40-oca-venv.sh venv --system-site-packages + odoo-stub      [A]
 scripts/50-nginx.sh    nginx reverse proxy vhost (+certbot)         [common]
 scripts/60-backup.sh   pg_dump + filestore cron backup              [common]
-scripts/70-docker.sh   docker + docky + PG-for-docker               [B]
+scripts/70-docker.sh   docker engine (+ docky unless DOCKY=0) + PG-for-docker [B,C]
+scripts/73-hosted-apps.sh  host ready for a mini-PaaS control plane  [C]
 scripts/72-pg-docker-user.sh  PG role+db for a docker project       [B]
 scripts/80-project.sh  attach a customer project (venv)             [A]
 scripts/81-staging.sh  staging instance on the same host (venv)     [A]
@@ -366,7 +387,7 @@ to `/etc/odoo/db-credentials-<db>.env` (0600, group `app`).
 
 Then in the project's docker-compose/docky config, point Odoo at the
 host via the bridge gateway (plain Linux docker doesn't auto-provide
-`host.docker.internal`, so add it explicitly — **dokku does it for you**):
+`host.docker.internal`, so add it explicitly — **a hosted-apps control plane does it for you**):
 
 ```yaml
 services:
@@ -381,14 +402,14 @@ services:
 
 ## Database credentials: which prefix does what
 
-Three naming schemes coexist and mixing them up is the usual docky/dokku
+Three naming schemes coexist and mixing them up is the usual docky / hosted-apps
 integration bug. `/etc/odoo/db-credentials-<db>.env` carries all of the
 meaningful ones, so a project (or a CI job) can source one file:
 
 | prefix | read by | note |
 |---|---|---|
 | `DB_*` (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_FILTER`) | the Odoo container / app | the docky compose files map the `PG*` values into these |
-| `PG*` (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) | libpq: `psql`, CI job env, `dokku --env-file`, `pg_dump` | the deployment-env convention (Jung, Airandme CI) |
+| `PG*` (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) | libpq: `psql`, CI job env, a hosted-apps `--env-file`, `pg_dump` | the deployment-env convention (Jung, Airandme CI) |
 | `POSTGRES_*` (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`) | a **postgres server container** bootstrap | NOT for the Odoo app — this is the docker `postgres` image's own contract |
 
 `72-pg-docker-user.sh` accepts `DB_*` **or** `PG*` on input (PG\* wins) and
@@ -398,7 +419,7 @@ emits both on output; nothing in bedrock reads `POSTGRES_*`.
 socket (`db_host = False`) and needs no password at all. Containers cannot use
 peer auth (their uid never matches a PG role), so they need a password. To let
 a container reuse the *same* runtime role as a venv instance — the step that
-prepares a dokku deployment of a project that already runs on the deb — give
+prepares a hosted-apps deployment of a project that already runs on the deb — give
 that role a password explicitly:
 
 ```bash
@@ -414,7 +435,50 @@ additive and needs no restart — the running instance keeps using the socket.
 
 ---
 
-# Common to both options
+---
+
+# Option C — hosted apps (mini-PaaS)
+
+The tier where several applications share one VPS: a **control plane** creates
+a container per app from a git push, the **host postgres** is the database, and
+the **host nginx** serves each app on its own name. No control plane is
+published by bedrock; bedrock prepares everything it consumes, so installing it
+is the only remaining step:
+
+```bash
+sudo HOSTED_APPS_INSTALLER=/root/install-control-plane.sh bash bin/bedrock --with-paas
+```
+
+`73-hosted-apps.sh` guarantees, idempotently:
+
+- containers reach the host cluster over TCP — `listen_addresses` is a
+  **postmaster** parameter, so the script restarts the cluster once when it
+  really changes (a reload silently does nothing and the container gets
+  `connection refused`); the pg_hba rule is **inserted before** any catch-all
+  reject, because pg_hba.conf is first-match;
+- ufw lets the docker subnet reach 5432 while 5432 stays closed to the world
+  (10-base.sh opens only 22/80/443; without the rule the symptom is
+  `connection timed out`, which reads like a dead postgres);
+- the `app` deploy user exists, is in the `docker` group, owns
+  `/home/app/data` (where each app's filestore is mounted) and has an ed25519
+  deploy key for its git remotes;
+- the host nginx keeps its own vhosts in `sites-enabled/` while the control
+  plane owns `conf.d/`, and `nginx -t` proves the two do not collide.
+
+It does **not** install docky (the compose wrapper belongs to Option B) or ak
+(the image aggregates its addons at build time), and it does not install the
+control plane unless `HOSTED_APPS_INSTALLER` points at one.
+
+Per-app settings stay app-specific and are printed at the end of the layer:
+publish `http:80:8069` + `https:443:8069` + the 8072 chat port, raise the
+client body size to 200m and the read timeout to 720s, route `/websocket` to
+8072, mount the filestore under `/home/app/data/<app>` with the app uid, give
+the container `host.docker.internal` (host-gateway), feed it `DB_*` from
+`/etc/odoo/db-credentials-<db>.env`, and declare a `/web/health` check in the
+image — without it the app receives traffic ~10s after start, while the
+registry is still loading.
+
+# Common to all options
 
 ## PostgreSQL major upgrade (keeping the data)
 
