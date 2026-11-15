@@ -205,9 +205,10 @@ write_db_credentials() {  # $1=db $2=user $3=password $4=file [$5=docker host na
 #   POSTGRES_* is a different contract (bootstrap of a postgres SERVER
 #   container) and must not be used for the Odoo application.
 # a hosted-apps control plane injects host.docker.internal (host-gateway) into
-# every app container; a
-# bare `docker run` needs --add-host host.docker.internal:host-gateway, else
-# use PGHOST (the bridge gateway) instead.
+# every app container; a bare docker run needs
+# --add-host host.docker.internal:host-gateway, else use PGHOST (the bridge
+# gateway) instead. (No backticks in this heredoc: it is unquoted, so a backtick
+# would run the quoted command as a substitution while the file is written.)
 DB_HOST=${dbhost}
 DB_PORT=5432
 DB_NAME=${db}
