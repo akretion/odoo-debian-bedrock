@@ -1,0 +1,13 @@
+# How docky is installed. One non-comment line; read by scripts/70-docker.sh and
+# by the CI `tools` job, so CI always tests the spec the substrate installs.
+#
+# The PyPI release's setup.cfg carries a [bdist_wheel] python-tag section, so the
+# sdist builds a wheel with the invalid tag `py34+`: old pip only warned, pip 26.x
+# (the one pipx puts in its shared venv) hard-fails with "Built wheel for docky is
+# invalid: Invalid wheel filename (invalid tag component)" and takes the whole
+# install down. akretion/docky branch fix-py3-wheel-tag drops that section.
+#
+# Override at run time with DOCKY_SPEC=<spec> (e.g. DOCKY_SPEC=docky once a fixed
+# release is on PyPI). Pin the commit for a frozen install:
+#   git+https://github.com/akretion/docky@714eb68
+git+https://github.com/akretion/docky@fix-py3-wheel-tag

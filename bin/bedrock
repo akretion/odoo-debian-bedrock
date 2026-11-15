@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # odoo-debian-bedrock orchestrator. Run as root on Debian 13 / Ubuntu 24.04+.
+#
+# Usage:
+#   bin/bedrock                 Option A — venv (deb core + venv overlay)
+#   bin/bedrock --with-docker   Option B — docker (docky compose projects)
+#   bin/bedrock --with-paas     Option C — hosted apps (mini-PaaS on the host,
+#                               one containerised app per project; no docky,
+#                               no ak: the image carries both)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-WITH_DOCKER=0
+MODE=venv
 for arg in "$@"; do
   case "$arg" in
-    --with-docker) WITH_DOCKER=1 ;;
+    --with-docker) MODE=docker ;;
+    --with-paas) MODE=paas ;;
     --help|-h) grep '^#' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 1 ;;
   esac
@@ -20,25 +28,42 @@ export ODOO_VERSION ODOO_ADMIN_PASSWD OCA_ADDONS
 run() { echo "=== bedrock: $1 ==="; bash "scripts/$1"; }
 
 run 10-base.sh
-run 11-tools.sh
+# ak is the addon aggregator of the deb/venv and docky tiers (layer 1 and 2).
+# A hosted-apps host never aggregates on the host: the image does it, so ak is
+# not installed here at all.
+[ "$MODE" = paas ] || run 11-tools.sh
 run 20-postgres.sh
-if [ "$WITH_DOCKER" = 1 ]; then
-  # Layer 2: Odoo runs in containers (acsone/odoo-bedrock image + mounted
-  # source tarball), so the host deb/venv are redundant and skipped. Host
-  # postgres + backup stay (backup auto-discovers the mounted filestore
-  # volume); host nginx still proxies to the container's published 8069.
-  run 70-docker.sh
-else
-  # Layer 1: Odoo runs from the official deb on the host.
-  run 30-odoo-deb.sh
-  run 40-oca-venv.sh
-fi
+
+case "$MODE" in
+  docker)
+    # Layer 2: Odoo runs in containers (acsone/odoo-bedrock image + mounted
+    # source tarball), so the host deb/venv are redundant and skipped. Host
+    # postgres + backup stay (backup auto-discovers the mounted filestore
+    # volume); host nginx still proxies to the container's published 8069.
+    run 70-docker.sh
+    ;;
+  paas)
+    # Layer 2b: the control plane builds one image per app and the HOST nginx
+    # serves it; docky is the compose wrapper of the other tier, so it is
+    # skipped, and ak is not installed (see above).
+    export DOCKY=0
+    run 70-docker.sh
+    unset DOCKY
+    run 73-hosted-apps.sh
+    ;;
+  *)
+    # Layer 1: Odoo runs from the official deb on the host.
+    run 30-odoo-deb.sh
+    run 40-oca-venv.sh
+    ;;
+esac
+
 run 50-nginx.sh
 run 60-backup.sh
 [ -n "${PROJECT_NAME:-}" ] && run 80-project.sh
 
-if [ "$WITH_DOCKER" = 1 ]; then
-  echo "=== bedrock (layer 2) done. Docker host ready — deploy projects with docky. ==="
-else
-  echo "=== bedrock (layer 1) done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ==="
-fi
+case "$MODE" in
+  docker) echo "=== bedrock (layer 2) done. Docker host ready — deploy projects with docky. ===" ;;
+  paas)   echo "=== bedrock (layer 2b) done. Hosted-apps host ready (see scripts/73-hosted-apps.sh output). ===" ;;
+  *)      echo "=== bedrock (layer 1) done. odoo admin_passwd: ${ODOO_ADMIN_PASSWD} (also in /etc/odoo/odoo.conf) ===" ;;
+esac

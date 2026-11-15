@@ -176,10 +176,18 @@ jobs:
           ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime 2>/dev/null || true
           apt-get update -qq && apt-get install -y -qq git curl ca-certificates pipx
 
+      # the job reads scripts/docky-spec, and checkout needs the git installed above
+      - uses: actions/checkout@v4
+
       - name: install docky + ak
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          pipx install docky --include-deps
+          # the spec the substrate installs (scripts/docky-spec), not PyPI: the
+          # PyPI sdist builds an invalid `py34+` wheel and pip 26.x hard-fails on
+          # it, so installing `docky` here tests something no host ever installs.
+          docky_spec="$(awk '!/^[[:space:]]*#/ && NF {print; exit}' scripts/docky-spec)"
+          echo "docky spec: $docky_spec"
+          pipx install "$docky_spec" --include-deps
           pipx install git+https://github.com/akretion/ak --force --include-deps
 
       - name: smoke test — CLI entry points
@@ -192,18 +200,50 @@ jobs:
   # A container: job can't run docker-in-docker, so this runs on the host
   # runner (which has a real docker daemon). Verifies the layer-2 pattern:
   # a container reaches HOST postgres over host.docker.internal (bridge
-  # gateway), which is exactly what 70-docker.sh's configure_pg_for_docker
-  # makes possible.
+  # gateway), which is exactly what configure_pg_for_docker makes possible.
+  #
+  # The ORDER matters and is the regression this job now guards: postgres is
+  # ALREADY RUNNING when the wiring is applied (that is what a real host looks
+  # like). listen_addresses is a postmaster parameter, so a reload is a no-op
+  # and the container gets `connection refused` unless the layer restarts the
+  # cluster. Starting postgres after configuring — as this job used to — hides
+  # exactly that bug.
   docker-pg:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: install host postgres + configure for docker
+      - name: install host postgres
+        run: sudo bash scripts/20-postgres.sh
+
+      - name: postgres must be running BEFORE the container wiring
         run: |
-          sudo bash scripts/20-postgres.sh
-          sudo bash -c 'source scripts/lib-instance.sh && configure_pg_for_docker'
-          sudo pg_ctlcluster "$(ls /etc/postgresql | head -1)" main start
+          sudo systemctl start postgresql 2>/dev/null || \
+            sudo pg_ctlcluster "$(ls /etc/postgresql | head -1)" main start
+          sudo ss -ltn | grep -q ':5432'
+
+      - name: hosted-apps layer (must restart the cluster to apply listen_addresses)
+        run: sudo bash scripts/73-hosted-apps.sh
+
+      - name: listen_addresses is active and the hba rule is in place
+        run: |
+          sudo ss -ltn | grep -E '0\.0\.0\.0:5432'
+          sudo su - postgres -c "psql -tAc 'show listen_addresses'" | grep -qx '\*'
+          sudo grep -E '172\.16\.0\.0/12' /etc/postgresql/*/main/pg_hba.conf
+
+      - name: the hba rule is NOT behind a catch-all reject
+        run: |
+          hba=$(sudo ls /etc/postgresql/*/main/pg_hba.conf | head -1)
+          ours=$(sudo grep -n '172\.16\.0\.0/12' "$hba" | head -1 | cut -d: -f1)
+          reject=$(sudo grep -nE '^[[:space:]]*host(nossl|ssl)?[[:space:]]+all[[:space:]]+all[[:space:]]+(0\.0\.0\.0/0|::/0)[[:space:]]+reject' "$hba" | head -1 | cut -d: -f1)
+          echo "ours=$ours first-reject=${reject:-none}"
+          [ -z "$reject" ] || [ "$ours" -lt "$reject" ]
+
+      - name: deploy user + storage root
+        run: |
+          id app
+          getent group docker | grep -q '\bapp\b'
+          [ "$(stat -c %U /home/app/data)" = "app" ]
 
       - name: create role + database
         run: |

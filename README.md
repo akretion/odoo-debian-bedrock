@@ -1,17 +1,19 @@
 # odoo-debian-bedrock
 
-Akretion's minimal on-premise Odoo host installation for Debian/Ubuntu.
+Akretion's minimal substrate for hosting Odoo yourself — on a cloud VPS or onsite, on Debian/Ubuntu. Short, idempotent shell scripts you can read end to end: nothing to learn, a boring foundation you stay in control of and extend.
 
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
 image we use in the docker option below.)
 
-The idea: bedrock gives you a boring, auditable foundation — an overlay of
-~400 lines of idempotent shell scripts, no framework to learn — and lets
-you choose how Odoo itself runs: from the official `.deb` (with a venv for
-OCA addons), or inside Docker (acsone/odoo-bedrock image + a mounted source
-tarball).
+The idea: bedrock prepares the host — hardening, postgres, nginx, backups —
+and stays out of the way; you choose how Odoo itself runs: from the official
+`.deb` (with a venv for OCA addons), inside Docker (acsone/odoo-bedrock
+image + a mounted source tarball), or under a container control plane of
+your own (hosted apps). One deployment path runs roughly half the tree
+(~900 of ~1300 shell lines); the rest is the other options, which a given
+host never executes.
 
-## Two install options
+## Three install options
 
 ```
 odoo-debian-bedrock
@@ -22,11 +24,17 @@ odoo-debian-bedrock
 │   ├─ host postgres
 │   └─ host nginx → 127.0.0.1:8069
 │
-└── Option B — DOCKER                  bin/bedrock --with-docker
-    ├─ docker + docky
-    ├─ odoo in a container (acsone/odoo-bedrock + mounted source)
-    ├─ host postgres (reached over the bridge)
-    └─ host nginx → container's 8069
+├── Option B — DOCKER                  bin/bedrock --with-docker
+│   ├─ docker + docky
+│   ├─ odoo in a container (acsone/odoo-bedrock + mounted source)
+│   ├─ host postgres (reached over the bridge)
+│   └─ host nginx → container's 8069
+│
+└── Option C — HOSTED APPS             bin/bedrock --with-paas
+    ├─ docker engine (no docky, no ak)
+    ├─ one containerised app per project, built from git by a control plane
+    ├─ host postgres (the same role/db a venv instance can share)
+    └─ host nginx serves each app; vhosts stay in sites-enabled/
 ```
 
 |                     | Option A — venv (default)                         | Option B — docker                              |
@@ -36,6 +44,12 @@ odoo-debian-bedrock
 | Postgres            | host (unix socket, peer auth)                      | host (TCP over the docker bridge)              |
 | Best for            | small on-prem, free users, the "viral" tier        | larger / multi-tenant / managed docker projects|
 | Command             | `bin/bedrock`                                      | `bin/bedrock --with-docker`                    |
+
+A third option, **hosted apps** (`bin/bedrock --with-paas`), prepares the same
+kind of host for a mini-PaaS control plane that builds one image per app and
+lets the host nginx serve it. It installs the docker engine plus the database
+wiring and **not** docky or ak: on that tier the build happens in the image.
+See "Option C" below.
 
 ## Quick start
 
@@ -74,7 +88,7 @@ export LONGPOLLING_PORT=8072      # gevent/websocket port (nginx upstream)
 export HTTP_INTERFACE=127.0.0.1   # bind loopback: nginx is the front door
 ```
 
-Common to both:
+Common to all:
 
 ```bash
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
@@ -99,18 +113,31 @@ export PG_AUTOVACUUM_ANALYZE_SCALE_FACTOR=0.02
 export PG_EXTRA_CONF="max_connections = 200"
 ```
 
+Options B / C — container tiers:
+
+```bash
+export HOSTED_APPS_INSTALLER=/path/to/installer.sh  # private control plane installer (C)
+export DOCKY=1                    # 0 skips the docky compose wrapper (--with-paas does)
+export DOCKY_SPEC=...            # overrides scripts/docky-spec (how docky is
+                                  # installed: the PyPI sdist builds an invalid
+                                  # wheel on modern pip; `docky` once a fixed
+                                  # release exists, or a commit SHA to pin)
+export PG_ALLOW_RESTART=1         # 0: write listen_addresses but never restart postgres
+```
+
 ## Layout
 
 ```
 bin/bedrock            orchestrator: run all or selected steps
 scripts/10-base.sh     host hardening basics, unattended-upgrades   [common]
-scripts/11-tools.sh    pipx + ak (Akretion's addon-management CLI)  [common]
+scripts/11-tools.sh    pipx + ak (Akretion's addon-management CLI)  [A,B]
 scripts/20-postgres.sh postgresql (distro or PGDG) + tuning         [common]
 scripts/30-odoo-deb.sh nightly.odoo.com repo + odoo deb             [A]
 scripts/40-oca-venv.sh venv --system-site-packages + odoo-stub      [A]
 scripts/50-nginx.sh    nginx reverse proxy vhost (+certbot)         [common]
 scripts/60-backup.sh   pg_dump + filestore cron backup              [common]
-scripts/70-docker.sh   docker + docky + PG-for-docker               [B]
+scripts/70-docker.sh   docker engine (+ docky unless DOCKY=0) + PG-for-docker [B,C]
+scripts/73-hosted-apps.sh  host ready for a mini-PaaS control plane  [C]
 scripts/72-pg-docker-user.sh  PG role+db for a docker project       [B]
 scripts/80-project.sh  attach a customer project (venv)             [A]
 scripts/81-staging.sh  staging instance on the same host (venv)     [A]
@@ -348,20 +375,25 @@ postgres over TCP — not by mounting the socket. Why:
   `unix_socket_directories`, container images, or where PG moves later.
 
 `70-docker.sh` prepares the host: postgres listens on `*` and pg_hba allows
-the docker bridge subnet (172.16.0.0/12) with scram-sha-256. External 5432
-stays closed by ufw (10-base.sh) and the pg_hba scoping — so `*` is not an
-open door.
+the docker bridge subnet (172.16.0.0/12) using the cluster's own
+`password_encryption` policy (`md5` or `scram-sha-256` — inherited clusters
+often force md5 in a `conf.d` file, and a `scram-sha-256` line then rejects
+every role created under the md5 policy). External 5432 stays closed by ufw
+(10-base.sh) and the pg_hba scoping — so `*` is not an open door.
 
 Per project, create a role + database:
 
 ```bash
-DB_NAME=myproj DB_PASSWORD=<secret> \
-  sudo -E bash /opt/odoo-debian-bedrock/scripts/72-pg-docker-user.sh
+DB_NAME=myproj DB_USER=myproj bash scripts/72-pg-docker-user.sh
 ```
 
+The script generates a password when you don't pass one, resets it on every
+run (so the database and the file can never drift), and writes the credentials
+to `/etc/odoo/db-credentials-<db>.env` (0600, group `app`).
+
 Then in the project's docker-compose/docky config, point Odoo at the
-host via the bridge gateway (Linux docker doesn't auto-provide
-`host.docker.internal`, so add it explicitly):
+host via the bridge gateway (plain Linux docker doesn't auto-provide
+`host.docker.internal`, so add it explicitly — **a hosted-apps control plane does it for you**):
 
 ```yaml
 services:
@@ -374,9 +406,126 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
 ```
 
+## Database credentials: which prefix does what
+
+Three naming schemes coexist and mixing them up is the usual docky / hosted-apps
+integration bug. `/etc/odoo/db-credentials-<db>.env` carries all of the
+meaningful ones, so a project (or a CI job) can source one file:
+
+| prefix | read by | note |
+|---|---|---|
+| `DB_*` (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_FILTER`) | the Odoo container / app | the docky compose files map the `PG*` values into these |
+| `PG*` (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) | libpq: `psql`, CI job env, a hosted-apps `--env-file`, `pg_dump` | the deployment-env convention (Jung, Airandme CI) |
+| `POSTGRES_*` (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`) | a **postgres server container** bootstrap | NOT for the Odoo app — this is the docker `postgres` image's own contract |
+
+`72-pg-docker-user.sh` accepts `DB_*` **or** `PG*` on input (PG\* wins) and
+emits both on output; nothing in bedrock reads `POSTGRES_*`.
+
+**Peer auth or password?** The venv instance uses peer auth over the unix
+socket (`db_host = False`) and needs no password at all. Containers cannot use
+peer auth (their uid never matches a PG role), so they need a password. To let
+a container reuse the *same* runtime role as a venv instance — the step that
+prepares a hosted-apps deployment of a project that already runs on the deb — give
+that role a password explicitly:
+
+```bash
+RUNTIME_DB_PASSWORD=<secret> RUNTIME_DB_NAME=myproj \
+  sudo -E bash scripts/20-postgres.sh
+# writes /etc/odoo/db-credentials.env, leaves odoo.conf on peer auth
+```
+
+The password is stored as SCRAM even when the cluster policy is md5: a SCRAM
+verifier also authenticates through a pg_hba line that says `md5`, whereas an
+md5 verifier does not survive a `scram-sha-256` line. Setting a password is
+additive and needs no restart — the running instance keeps using the socket.
+
 ---
 
-# Common to both options
+---
+
+# Option C — hosted apps (mini-PaaS)
+
+The tier where several applications share one VPS: a **control plane** creates
+a container per app from a git push, the **host postgres** is the database, and
+the **host nginx** serves each app on its own name. No control plane is
+published by bedrock; bedrock prepares everything it consumes, so installing it
+is the only remaining step:
+
+```bash
+sudo HOSTED_APPS_INSTALLER=/root/install-control-plane.sh bash bin/bedrock --with-paas
+```
+
+`73-hosted-apps.sh` guarantees, idempotently:
+
+- containers reach the host cluster over TCP — `listen_addresses` is a
+  **postmaster** parameter, so the script restarts the cluster once when it
+  really changes (a reload silently does nothing and the container gets
+  `connection refused`); the pg_hba rule is **inserted before** any catch-all
+  reject, because pg_hba.conf is first-match;
+- ufw lets the docker subnet reach 5432 while 5432 stays closed to the world
+  (10-base.sh opens only 22/80/443; without the rule the symptom is
+  `connection timed out`, which reads like a dead postgres);
+- the `app` deploy user exists, is in the `docker` group, owns
+  `/home/app/data` (where each app's filestore is mounted) and has an ed25519
+  deploy key for its git remotes;
+- the host nginx keeps its own vhosts in `sites-enabled/` while the control
+  plane owns `conf.d/`, and `nginx -t` proves the two do not collide.
+
+### doodba compatibility (opt-in, DIY)
+
+A [doodba](https://github.com/Tecnativa/doodba) project (built with the
+[doodba-copier-template](https://github.com/Tecnativa/doodba-copier-template) or
+deployed with [lefilament's ansible role](https://github.com/lefilament/ansible_role_odoo_docker))
+is a plain docker-compose stack whose odoo service is a project subimage built
+`FROM tecnativa/doodba`, talking libpq `PG*` to a postgres over TCP. That is the
+same contract the container tiers already provide, so bedrock installs **no
+doodba tooling** — choosing doodba is like choosing docky: a decision the user
+makes on top of the substrate, and the doodba install itself (copier template,
+ansible role, subimage build) stays theirs. What the substrate already gives
+such a stack:
+
+- docker engine + compose plugin (`70-docker.sh`);
+- the host postgres reachable from containers over TCP
+  (`configure_pg_for_docker`: `listen_addresses`, pg_hba scoped to
+  172.16.0.0/12, ufw rule, cluster restart when the parameter really changes);
+- per-project `PG*` credentials in `/etc/odoo/db-credentials-<db>.env`
+  (`72-pg-docker-user.sh`) — which **are** doodba's own connection variables
+  (`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGHOST`), so the file can be passed to
+  compose as-is (`--env-file`).
+
+To run one, add the minimal overrides to the generated compose (the template
+otherwise ships its own `db` container, which is redundant on a bedrock host):
+
+```yaml
+services:
+  odoo:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      PGHOST: host.docker.internal   # was: the template's db service
+      # PGDATABASE / PGUSER / PGPASSWORD come from db-credentials-<db>.env
+    # and remove the `db` service + depends_on
+```
+
+Nothing to enable in bedrock for this: the hosted-apps wiring **is** the whole
+door, and it is exercised on every CI run by the `docker-pg` job (a container
+reaching the host postgres over the bridge gateway — exactly what a doodba
+stack does).
+
+It does **not** install docky (the compose wrapper belongs to Option B) or ak
+(the image aggregates its addons at build time), and it does not install the
+control plane unless `HOSTED_APPS_INSTALLER` points at one.
+
+Per-app settings stay app-specific and are printed at the end of the layer:
+publish `http:80:8069` + `https:443:8069` + the 8072 chat port, raise the
+client body size to 200m and the read timeout to 720s, route `/websocket` to
+8072, mount the filestore under `/home/app/data/<app>` with the app uid, give
+the container `host.docker.internal` (host-gateway), feed it `DB_*` from
+`/etc/odoo/db-credentials-<db>.env`, and declare a `/web/health` check in the
+image — without it the app receives traffic ~10s after start, while the
+registry is still loading.
+
+# Common to all options
 
 ## PostgreSQL major upgrade (keeping the data)
 
@@ -451,17 +600,53 @@ opened only in the docker option (70-docker.sh), gated by pg_hba + ufw.
 
 ## Backups
 
-60-backup.sh installs a nightly cron (pg_dump in custom format + filestore
-tar, 14-day retention). Set RCLONE_REMOTE (e.g. `b2:backups/host`) for
-off-site copies. The filestore is auto-discovered, covering both options:
+60-backup.sh installs `/usr/local/bin/odoo-backup` plus a nightly cron
+(03:17) doing a `pg_dump -Fc` of the selected databases, a
+`pg_dumpall --globals-only` (roles/passwords, makes a bare restore
+possible) and a tar of the Odoo filestore(s).
+
+It is configured in **`/etc/odoo-backup.conf`**, created on the first run
+and never overwritten afterwards (re-running the script only refreshes the
+helper and the cron entry):
+
+```bash
+BACKUP_DBS="all"          # or: "prod_db other_db" — space-separated
+BACKUP_FILESTORE="yes"
+RETENTION_DAYS="7"
+RCLONE_REMOTE=""          # off-site copy, needs rclone
+EXTRA_FILESTORE_DIRS=""   # filestore dirs auto-discovery misses
+```
+
+Seed the database list directly on the first run:
+
+```bash
+sudo BACKUP_DBS=prod_db bash scripts/60-backup.sh
+```
+
+**Always list the real business databases instead of relying on `all`.**
+Shared and inherited hosts accumulate old copies, CI databases and
+vestigial prod DBs: dumping everything exhausts the disk in a night or two
+(the default is a safety net, not a backup platform — premium setups get
+gobackup/barman). With an explicit list, only the filestore
+sub-directories named after those databases are archived, which is where
+most of the volume usually sits.
+
+The filestore is auto-discovered, covering both options:
 
 - venv:  /var/lib/odoo/.local/share/Odoo/filestore
 - docker (dev):  /home/app/<project>/data/filestore
 - docker (prod): /home/app/data/<project>/filestore
 
 (the two docker shapes are the `./data/filestore` vs `~/data/<project>/filestore`
-conventions from the docky template). For an exotic layout, edit
-/usr/local/bin/odoo-backup after install.
+conventions from the docky template). Add `EXTRA_FILESTORE_DIRS` for an
+exotic layout.
+
+Retention is one knob for both kinds of archive; measure one night before
+raising it (the filestore tar is typically 20x the dump). Set
+`RCLONE_REMOTE` (e.g. `b2:backups/host`) so the archives leave the host.
+Run `journalctl`-free checking with `tail /var/log/odoo-backup.log` and a
+first manual `sudo /usr/local/bin/odoo-backup` — then confirm a restore:
+`pg_restore -l /var/backups/odoo/*-<db>.dump | head`.
 
 ## CI
 

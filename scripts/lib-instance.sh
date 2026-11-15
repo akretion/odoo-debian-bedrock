@@ -151,6 +151,80 @@ ensure_pg_peer_role() {  # $1 = role
   fi
 }
 
+# Password of the online cluster's NEW passwords (md5 or scram-sha-256).
+# Operators sometimes force md5 in conf.d/xxx.conf (an inherited host often
+# does), and pg_hba then has to say md5: a role created under an md5 policy
+# CANNOT authenticate through a `scram-sha-256` pg_hba line. Detect, never
+# hardcode.
+pg_password_encryption() {
+  local enc
+  enc=$(su - postgres -c "psql -tAc 'show password_encryption'" 2>/dev/null | tr -d '[:space:]')
+  [ -n "$enc" ] || enc=scram-sha-256
+  echo "$enc"
+}
+
+# Give a role a password so a CONTAINER (docky / hosted apps) can reach host postgres
+# over TCP. Additive: the venv instance keeps using peer auth over the unix
+# socket, so its conf keeps db_host = False and this changes nothing for it.
+# The password is always stored as SCRAM: a SCRAM verifier ALSO authenticates
+# through a pg_hba line that says `md5` (PostgreSQL negotiates SCRAM), so this
+# works on an md5-policy cluster without touching pg_hba -- verified on PG 15.
+set_role_password() {  # $1 = role, $2 = password
+  local role="${1:-}" pw="${2:-}"
+  [ -n "$role" ] && [ -n "$pw" ] || {
+    echo "set_role_password: role and password required" >&2
+    return 1
+  }
+  case "$pw" in
+    *"'"*|*\\*|*$'\n'*) echo "set_role_password: password must not contain ', \\ or a newline" >&2; return 1 ;;
+  esac
+  su - postgres -c "psql -q -v ON_ERROR_STOP=1 -c \"SET password_encryption='scram-sha-256'; ALTER ROLE \\\"$role\\\" WITH LOGIN PASSWORD '$pw'\""
+  echo "pg: SCRAM password set for role '$role'"
+}
+
+# Credentials file consumed by containers. Three naming schemes are in play
+# and mixing them up is the usual docky / hosted-apps integration bug:
+#   DB_*        what the Odoo app/container reads (the docky compose files map
+#               PGHOST/PGDATABASE/PGUSER/PGPASSWORD into these)
+#   PG_*        libpq standard: psql, CI job env, a hosted-apps --env-file
+#   POSTGRES_*  bootstraps a *postgres server container*; never an Odoo app
+write_db_credentials() {  # $1=db $2=user $3=password $4=file [$5=docker host name]
+  local db="$1" user="$2" pw="$3" file="$4" dbhost="${5:-host.docker.internal}"
+  case "$pw" in
+    *"'"*|*\\*|*$'\n'*) echo "write_db_credentials: unsupported character in password" >&2; return 1 ;;
+  esac
+  install -d -m 0750 /etc/odoo
+  umask 077
+  cat > "$file" <<EOF
+# odoo-debian-bedrock: credentials for CONTAINER access to database '$db'.
+# NOT read by the venv instance, which uses peer auth over the unix socket
+# (db_host = False in its odoo.conf).
+#
+#   DB_*  = what the Odoo app/container consumes (the docky compose maps them)
+#   PG_*  = libpq standard: psql, CI env, a hosted-apps env file
+#   POSTGRES_* is a different contract (bootstrap of a postgres SERVER
+#   container) and must not be used for the Odoo application.
+# a hosted-apps control plane injects host.docker.internal (host-gateway) into
+# every app container; a
+# bare `docker run` needs --add-host host.docker.internal:host-gateway, else
+# use PGHOST (the bridge gateway) instead.
+DB_HOST=${dbhost}
+DB_PORT=5432
+DB_NAME=${db}
+DB_USER=${user}
+DB_PASSWORD=${pw}
+DB_FILTER=^${db}\$
+PGHOST=172.17.0.1
+PGPORT=5432
+PGDATABASE=${db}
+PGUSER=${user}
+PGPASSWORD=${pw}
+EOF
+  chmod 0600 "$file"
+  chown root:root "$file" 2>/dev/null || true
+  echo "$file"
+}
+
 # Odoo-oriented postgres tuning into conf.d/bedrock.conf. The fixed defaults
 # are safe for SSD + Odoo's write churn; override each via PG_* env vars, or
 # append arbitrary settings via PG_EXTRA_CONF (one "key = value" per line —
@@ -203,22 +277,71 @@ configure_pg_tuning() {
 
 # Make host postgres reachable from docker containers over TCP
 # (listen_addresses='*' gated by pg_hba + ufw; see README).
+#
+# Two traps here, both silent:
+#  * listen_addresses is a POSTMASTER parameter. A reload logs "parameter
+#    cannot be changed without restarting the server" and the container keeps
+#    getting `connection refused` on the bridge gateway — indistinguishable
+#    from a dead postgres. Restart the cluster once, only when the running
+#    value is not already '*', so re-runs are free (PG_ALLOW_RESTART=0 defers
+#    it and says so).
+#  * pg_hba.conf is FIRST-MATCH. Appending the rule to a hardened host puts it
+#    behind `hostnossl all all 0.0.0.0/0 reject`, where it never fires; insert
+#    it before the first catch-all reject and after the specific per-database
+#    lines (a legacy container may still need md5).
 configure_pg_for_docker() {
-  local pgver pgconf pghba
+  local pgver pgconf pghba method before restart_ok
   pgver=$(pg_running_version)
   [ -n "$pgver" ] || { echo "no postgres cluster found; skipping" >&2; return 0; }
   pgconf="/etc/postgresql/$pgver/main/postgresql.conf"
   pghba="/etc/postgresql/$pgver/main/pg_hba.conf"
+
+  before=$(su - postgres -c "psql -tAc 'show listen_addresses'" 2>/dev/null | tr -d '[:space:]')
   if grep -qE '^[#]?listen_addresses' "$pgconf"; then
     sed -i -E "s|^[#]?listen_addresses.*|listen_addresses = '*'|" "$pgconf"
   else
     echo "listen_addresses = '*'" >> "$pgconf"
   fi
-  grep -q "172.16.0.0/12" "$pghba" || cat >> "$pghba" <<'EOF'
-# odoo-debian-bedrock: docker containers reach host postgres over TCP
-host    all             all             172.16.0.0/12           scram-sha-256
-EOF
-  pg_ctlcluster "$pgver" main reload 2>/dev/null || service postgresql reload 2>/dev/null || true
+
+  # Follow the cluster's password policy. Hardcoding scram-sha-256 here is a
+  # real outage: on a host where an operator conf.d file forces md5 (common on
+  # inherited clusters) every role created by 72-pg-docker-user.sh gets an md5
+  # verifier, and an md5 verifier is rejected by a scram-sha-256 line.
+  method=$(pg_password_encryption)
+  if ! grep -q "172.16.0.0/12" "$pghba"; then
+    awk -v method="$method" '
+      BEGIN { done = 0 }
+      !done && /^[[:space:]]*host(nossl|ssl)?[[:space:]]+all[[:space:]]+all[[:space:]]+(0\.0\.0\.0\/0|::\/0)[[:space:]]+reject/ {
+        print "# odoo-debian-bedrock: docker containers reach host postgres over TCP"
+        print "host    all             all             172.16.0.0/12           " method
+        done = 1
+      }
+      { print }
+      END {
+        if (!done) {
+          print "# odoo-debian-bedrock: docker containers reach host postgres over TCP"
+          print "host    all             all             172.16.0.0/12           " method
+        }
+      }' "$pghba" > "$pghba.bedrock-new" \
+      && mv "$pghba.bedrock-new" "$pghba"
+    chown postgres:postgres "$pghba" 2>/dev/null || true
+    chmod 640 "$pghba" 2>/dev/null || true
+  fi
+
+  restart_ok="${PG_ALLOW_RESTART:-1}"
+  if [ "$before" = "*" ]; then
+    pg_ctlcluster "$pgver" main reload 2>/dev/null || \
+      systemctl reload "postgresql@$pgver-main" 2>/dev/null || \
+      service postgresql reload 2>/dev/null || true
+  elif [ "$restart_ok" = 1 ]; then
+    echo "pg: listen_addresses '$before' -> '*' is postmaster-level: restarting cluster $pgver/main"
+    pg_ctlcluster "$pgver" main restart 2>/dev/null || \
+      systemctl restart "postgresql@$pgver-main" 2>/dev/null || \
+      service postgresql restart 2>/dev/null || true
+  else
+    echo "pg: PG_ALLOW_RESTART=0 — listen_addresses='*' is written but NOT active;" >&2
+    echo "    containers will get 'connection refused' until the cluster is restarted." >&2
+  fi
 }
 
 # Install a CLI tool via pipx into a SHARED home (/opt/pipx) and

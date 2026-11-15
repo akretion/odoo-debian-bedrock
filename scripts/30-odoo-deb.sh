@@ -6,7 +6,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 : "${ODOO_VERSION:=18.0}"
 
-wget -q -O - https://nightly.odoo.com/odoo.key | gpg --dearmor -o /usr/share/keyrings/odoo-archive-keyring.gpg
+# --batch --yes so a re-run overwrites the keyring instead of prompting on a tty
+wget -q -O - https://nightly.odoo.com/odoo.key | gpg --batch --yes --dearmor -o /usr/share/keyrings/odoo-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/odoo-archive-keyring.gpg] https://nightly.odoo.com/${ODOO_VERSION}/nightly/deb/ ./" \
   > /etc/apt/sources.list.d/odoo.list
 apt-get update -qq
