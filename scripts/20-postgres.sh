@@ -19,7 +19,30 @@ fi
 # extensions for each, postgresql-server-dev-all and the LLVM/clang
 # toolchain (~2.5 GB) -- and still creates no cluster when one already owns
 # port 5432. Install one explicit major instead.
-if [ "${PGDG:-0}" = 1 ]; then
+#
+# A host that ALREADY runs a cluster must not get a server package at all --
+# not even when PGDG=0, because the PGDG repo may sit in sources.list.d from an
+# earlier run, and `apt-get install postgresql` then resolves to the newest
+# major and creates a SECOND cluster next to the one serving production
+# (measured on a PG14+PGDG host: the runbook for that migration had to mark
+# this script NO-GO and tune the cluster by hand). Only the client and common
+# packages are wanted there; the tuning below applies to the online cluster.
+pg_has_cluster=0
+if command -v pg_lsclusters >/dev/null 2>&1 \
+   && pg_lsclusters --no-header 2>/dev/null | grep -q .; then
+  pg_has_cluster=1
+fi
+
+if [ "$pg_has_cluster" = 1 ]; then
+  pg_major_here=$(pg_lsclusters --no-header 2>/dev/null \
+    | awk '$4 == "online" {print $1; exit}')
+  [ -n "$pg_major_here" ] || pg_major_here=$(pg_lsclusters --no-header 2>/dev/null \
+    | awk 'NR == 1 {print $1}')
+  echo "existing PostgreSQL cluster found (major ${pg_major_here:-?}): installing client packages only"
+  apt-get install -y -qq postgresql-common postgresql-client-common libpq-dev
+  [ -n "$pg_major_here" ] \
+    && apt-get install -y -qq "postgresql-client-$pg_major_here" || true
+elif [ "${PGDG:-0}" = 1 ]; then
   apt-get install -y -qq postgresql-common postgresql-client-common libpq-dev
   if [ -z "${PG_MAJOR:-}" ]; then
     PG_MAJOR=$(apt-cache search --names-only '^postgresql-1[0-9]$' \
