@@ -12,6 +12,7 @@
 #
 # The filestore is AUTO-DISCOVERED, covering both options without config:
 #   - venv (deb):   /var/lib/odoo/.local/share/Odoo/filestore
+#   - venv (adhoc): /home/<user>/.local/share/Odoo/filestore    (plain install)
 #   - docker (dev): /home/app/<project>/data/filestore        (./data/filestore)
 #   - docker (prod):/home/app/data/<project>/filestore        (~/data/<proj>/filestore)
 # With an explicit BACKUP_DBS list only the sub-directories named after those
@@ -90,6 +91,13 @@ backup_fs() {  # $1 = filestore dir, $2 = slug for the archive name
 
 if [ "$BACKUP_FILESTORE" = yes ]; then
   ROOTS=(/var/lib/odoo/.local/share/Odoo/filestore)
+  # A PLAIN venv install (no deb, no docker) keeps its data dir under the user's
+  # home: /home/<user>/.local/share/Odoo/filestore. It is the layout an adhoc
+  # venv production has before it is standardised, and missing it means the
+  # nightly backup silently contains dumps and NO attachments.
+  for fs in /home/*/.local/share/Odoo/filestore; do
+    [ -d "$fs" ] && ROOTS+=("$fs")
+  done
   for fs in /home/app/*/data/filestore /home/app/data/*/filestore; do
     [ -d "$fs" ] && ROOTS+=("$fs")
   done
