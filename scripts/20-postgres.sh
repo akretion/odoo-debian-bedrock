@@ -44,11 +44,16 @@ source "$(dirname "$0")/lib-instance.sh"
 configure_pg_tuning
 
 # Odoo deb's postinst creates the 'odoo' role; if it ran before postgres
-# was up (or postgres was installed after), ensure the role exists:
-su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='odoo'\" | grep -q 1 || createuser -d -R -S odoo" || true
-
-# ... and let that role actually log in over the unix socket (peer auth).
-ensure_pg_peer_role "${PG_RUNTIME_ROLE:-odoo}"
+# was up (or postgres was installed after), ensure the runtime role exists.
+# The role name follows PG_RUNTIME_ROLE, like every other consumer here: this
+# line used to hardcode 'odoo' while ensure_pg_peer_role/set_role_password
+# followed the variable, so a host with PG_RUNTIME_ROLE=<other> got a pg_hba
+# line for a role that was never created and died on
+# `ERROR: role "<other>" does not exist`.
+PG_ROLE="${PG_RUNTIME_ROLE:-odoo}"
+su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$PG_ROLE'\"" | grep -q 1 \
+  || su - postgres -c "createuser -d -R -S '$PG_ROLE'"
+ensure_pg_peer_role "$PG_ROLE"
 
 # Optional: give the SAME runtime role a password, so a container (a hosted-apps
 # deployment of this project, now or later) can use the existing role and
