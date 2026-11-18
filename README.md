@@ -1,6 +1,6 @@
 # odoo-debian-bedrock
 
-Akretion's minimal substrate for hosting Odoo yourself — on a cloud VPS or onsite, on Debian/Ubuntu. Short, idempotent shell scripts you can read end to end: nothing to learn, a boring foundation you stay in control of and extend.
+Akretion's minimal substrate for hosting Odoo yourself — on a cloud VPS or onsite, on Debian/Ubuntu. Short, idempotent shell scripts you can read end to end: nothing to learn, nothing that will surprise you in two years — a foundation you stay in control of and extend.
 
 (Not to be confused with acsone/odoo-bedrock, the excellent Docker base
 image we use in the docker option below.)
@@ -93,6 +93,7 @@ Common to all:
 ```bash
 export DOMAIN=odoo.example.com    # enables the nginx vhost (50-nginx.sh)
 export CERTBOT_EMAIL=you@example.com  # unattended Let's Encrypt issuance
+export BEDROCK_BANNER=0           # silence the attribution line (CI, log diffs)
 export PGDG=1                     # use postgresql.org repo instead of distro PG
 export PG_MAJOR=18                # PGDG: explicit major (default: newest in PGDG)
 # Never `apt install postgresql` on a PGDG host: that metapackage is the
