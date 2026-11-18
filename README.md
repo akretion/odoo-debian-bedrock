@@ -439,6 +439,33 @@ verifier also authenticates through a pg_hba line that says `md5`, whereas an
 md5 verifier does not survive a `scram-sha-256` line. Setting a password is
 additive and needs no restart — the running instance keeps using the socket.
 
+**Ownership, not just access.** An app pointed at an EXISTING database needs the
+runtime role to **own** it: `odoo/service/db.py::list_dbs()` enumerates with
+`where datdba = (select usesysid … current_user)`, and with `dbfilter` set (which
+a host serving several databases requires) an empty list means every request
+303s to `/web/database/selector` — while the build, the container and the logs
+all look fine. So when `72-pg-docker-user.sh` prepares an existing database:
+
+```sql
+ALTER DATABASE myproj OWNER TO myproj_runtime;   -- the role the app connects as
+```
+
+Two roles are the wrong shape for this: the app role would own the database
+while the venv role keeps owning every table, and PostgreSQL refuses the
+membership in both directions, so one of the two instances always lacks
+something. Give the instance's own role a password instead.
+
+**Two instances, one database (the cutover window).** Running the venv and the
+container at the same time is fine for a short verification, but only with the
+newcomer's cron threads at zero (`MAX_CRON_THREADS=0` in the dokku app): two
+copies of the same `ir.cron` double-send mail and can transmit fiscal documents
+twice. Do **not** use a `DISABLE_CRONS`-style switch that runs
+`UPDATE ir_cron SET active=false` — that mutates the customer's database and
+outlives the cutover. And disable the legacy systemd unit, do not merely stop
+it: a reboot would restore the double-crons state. Finally, a module update
+during the cutover moves the schema forward, so the legacy process stops being a
+faithful rollback — the dump is.
+
 ---
 
 ---
