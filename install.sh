@@ -11,6 +11,8 @@ REPO=akretion/odoo-debian-bedrock
 BRANCH=master
 DEST=/opt/odoo-debian-bedrock
 
+echo "=== odoo-debian-bedrock - by Akretion (https://akretion.com) ==="
+
 if [ "$(id -u)" != 0 ]; then
   echo "Please run as root, e.g.:" >&2
   echo "  curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh | sudo sh" >&2
@@ -38,4 +40,4 @@ else
 fi
 
 cd "$DEST"
-exec bash bin/bedrock "$@"
+exec env BEDROCK_BANNER=0 bash bin/bedrock "$@"

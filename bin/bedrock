@@ -9,6 +9,17 @@
 #                               no ak: the image carries both)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
+
+# Attribution, printed once per run. BEDROCK_BANNER=0 silences it for CI and
+# for anything that compares output across runs (install.sh does, it prints
+# its own line before delegating here).
+banner() {
+  [ "${BEDROCK_BANNER:-1}" = 0 ] && return 0
+  local rev
+  rev=$(git -C "$ROOT" log -1 --format=%h 2>/dev/null || true)
+  printf '=== odoo-debian-bedrock%s - by Akretion (https://akretion.com) ===\n' "${rev:+ $rev}"
+}
 
 MODE=venv
 for arg in "$@"; do
@@ -19,6 +30,8 @@ for arg in "$@"; do
     *) echo "unknown arg: $arg" >&2; exit 1 ;;
   esac
 done
+
+banner
 
 : "${ODOO_VERSION:=18.0}"
 : "${ODOO_ADMIN_PASSWD:=$(openssl rand -hex 16)}"
