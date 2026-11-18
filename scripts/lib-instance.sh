@@ -128,6 +128,40 @@ pg_running_version() {
   echo "$v"
 }
 
+# Make sure a cluster is actually RUNNING before anything touches it.
+#
+# Installing postgresql is not starting it: in a container there is no systemd,
+# and Debian's policy-rc.d refuses service starts during apt
+# ("invoke-rc.d: policy-rc.d denied execution of start"), leaving the freshly
+# created cluster `down`. Everything downstream then fails on the socket --
+# tuning reloads nothing, `su - postgres -c psql` cannot connect and the runtime
+# role is never created, so the whole script exits 1 (this is what turned every
+# CI matrix job red once 20-postgres started creating roles).
+#
+# Idempotent: returns the online major, or the major it managed to start.
+ensure_pg_cluster_running() {
+  local v
+  v=$(pg_lsclusters --no-header 2>/dev/null | awk '$4 == "online" {print $1; exit}')
+  if [ -n "$v" ]; then
+    echo "$v"
+    return 0
+  fi
+  # no online cluster: take the first one that exists (there is normally one)
+  v=$(pg_lsclusters --no-header 2>/dev/null | awk 'NR == 1 {print $1}')
+  [ -n "$v" ] || return 0            # postgres not installed: nothing to start
+  echo "starting PostgreSQL cluster $v (no systemd in this environment)" >&2
+  pg_ctlcluster "$v" main start >/dev/null 2>&1 \
+    || service postgresql start >/dev/null 2>&1 \
+    || true
+  # wait for the socket instead of assuming: pg_ctlcluster returns once the
+  # postmaster is up, but `service` may report before it accepts connections
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if su - postgres -c "psql -tAc 'select 1'" >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  pg_lsclusters --no-header 2>/dev/null | awk '$4 == "online" {print $1; exit}'
+}
+
 # Let the Odoo runtime user reach postgres over the unix socket with peer
 # auth. Debian ships `local all all peer`, but hardened and legacy hosts
 # often do not -- and then Odoo cannot even create its own database:

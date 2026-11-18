@@ -64,6 +64,20 @@ fi
 
 # shellcheck source=lib-instance.sh
 source "$(dirname "$0")/lib-instance.sh"
+
+# A freshly installed cluster is DOWN in any environment without systemd (apt's
+# policy-rc.d refuses to start services), and everything below needs a live
+# socket. Start it here, once, and fail loudly rather than crashing later inside
+# a `su - postgres` call with a confusing error.
+pg_ver_up=$(ensure_pg_cluster_running)
+if [ -z "$pg_ver_up" ]; then
+  echo "ERROR: no running PostgreSQL cluster after the install; cannot configure roles/tuning." >&2
+  echo "       pg_lsclusters:" >&2
+  pg_lsclusters >&2 || true
+  exit 1
+fi
+echo "PostgreSQL cluster $pg_ver_up is online"
+
 configure_pg_tuning
 
 # Odoo deb's postinst creates the 'odoo' role; if it ran before postgres
