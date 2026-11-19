@@ -230,6 +230,61 @@ Key design points:
   (one core per host): for that, add a source clone to that instance's
   addons_path and point its unit at odoo-bin (see "Patching Odoo core").
 
+### The staging seed: a neutralized template, refreshed nightly
+
+Staging data should never be a dump loaded into a staging database: that is
+slow, and it silently inherits live crons, live SMTP servers and the production
+URL. Instead keep ONE neutralized template on the same cluster and clone it
+(`CREATE DATABASE … TEMPLATE <seed>` — seconds, disk-thin):
+
+```bash
+sudo bash scripts/82-seed.sh                 # install helper + config + cron (03:40)
+sudoedit /etc/odoo-seed.conf                 # SEED_TARGETS, see below
+sudo odoo-seed-refresh all                   # refresh now
+```
+
+`SEED_TARGETS` holds one line per seed:
+`name|source_db|seed_db|role|url|hook_dir`. Each night
+`/usr/local/bin/odoo-seed-refresh` dumps production (read-only), restores into
+`<seed>_new`, neutralizes it, installs `SEED_MODULES` on the seed with a real
+`odoo -i` (that is what gives clones the environment ribbon — SQL can only queue
+a module state), swaps the seed and optionally re-clones the databases listed in
+`SEED_CLONE_DBS`.
+
+**The seed carries no production file.** `CREATE DATABASE … TEMPLATE` copies the
+database, never the filestore directory, so a clone inheriting attachment rows
+would answer 500 on every compiled bundle
+(`FileNotFoundError: .../filestore/<db>/aa/aa6baa9…` on `web.assets_web.min.css`).
+Copying production's filestore fixes that and is the wrong answer: it is heavy
+(measured 1.5 GB / 23k rows on a small ERP) and it puts the customer's invoices,
+employee documents and images on a staging host. `neutralize-filestore.sql` makes
+the seed filestore-free instead: asset bundles and module-static index rows are
+deleted (each clone regenerates them from its own code), and business attachments
+keep their rows with a blanked pointer, so Odoo serves an empty stream rather than
+raising. Set `SEED_FILESTORE=yes` only for a project that genuinely needs the
+documents.
+
+Neutralization is **three layers**, and the split is the whole point:
+
+| layer | file | why there |
+|-------|------|-----------|
+| 1. the series itself | `<installed odoo>/addons/base/data/neutralize.sql` | read from the installation, never vendored: 18 adds the webhook update, 19 adds the SMTP-credential and `database.secret` rewrites, 20 will bring its own — so 16→20 stays correct by construction |
+| 2. the gaps core leaves | `share/neutralize-extras.sql` | queued mail/jobs, fetchmail, payment providers in test, the seed URL. Basic on purpose, every statement guarded per table, so a missing module is a no-op |
+| 3. project facts | `hook_dir/*.sql` (this host) | fiscal environment, discuss history, third-party URLs, password policy — nothing generic ever lands here |
+
+The ribbon's look (`ribbon.name`, `ribbon.background.color`) is applied by
+`share/neutralize-ribbon.sql`, UPDATE-only and **after** the install: the module's
+data file CREATES those rows, so writing them beforehand aborts the module graph
+on a unique violation.
+
+`odoo neutralize` proper (EVERY installed module's `data/neutralize.sql`,
+including OCA ones) rewrites far more than most projects accept on staging, so it
+is opt-in: `SEED_MODULE_SQL=yes`.
+
+The two shared SQL files are also shipped by the application-image tooling used
+on hosts where production runs in a container: it prefers the installed copies in
+`/usr/local/lib/odoo-seed/`, so a host running both keeps one source of truth.
+
 ## Patching Odoo core (commits / PRs / forks)
 
 The deb installs Odoo into /usr/lib/python3/dist-packages/odoo — it is
@@ -458,7 +513,7 @@ something. Give the instance's own role a password instead.
 
 **Two instances, one database (the cutover window).** Running the venv and the
 container at the same time is fine for a short verification, but only with the
-newcomer's cron threads at zero (`MAX_CRON_THREADS=0` in the dokku app): two
+newcomer's cron threads at zero (`MAX_CRON_THREADS=0` on the new instance): two
 copies of the same `ir.cron` double-send mail and can transmit fiscal documents
 twice. Do **not** use a `DISABLE_CRONS`-style switch that runs
 `UPDATE ir_cron SET active=false` — that mutates the customer's database and
