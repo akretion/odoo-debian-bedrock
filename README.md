@@ -230,6 +230,19 @@ Key design points:
   (one core per host): for that, add a source clone to that instance's
   addons_path and point its unit at odoo-bin (see "Patching Odoo core").
 
+## Nightly seed for staging (`82-seed-minimal.sh`)
+
+Clone staging databases from a neutralized TEMPLATE instead of restoring a dump:
+`createdb -T <seed>` takes seconds and cannot inherit a live cron, a live SMTP
+server or the production URL. `scripts/82-seed-minimal.sh` is the whole generic
+part (~20 lines): dump prod read-only, restore into `<seed>_new`, apply the
+series' own `base/data/neutralize.sql`, turn every `ir_cron` off, then run the
+project's `*.sql` hooks from `SEED_HOOKS`, and swap. Config is
+`/etc/odoo-seed.conf` (`SEED_SRC`, `SEED_DB`, `SEED_ROLE`, `SEED_HOOKS`,
+`SEED_URL`); schedule it from cron. Everything richer (container targets,
+filestore, ribbon, module installs, per-branch envs) belongs in the
+application-image tooling, not here.
+
 ## Patching Odoo core (commits / PRs / forks)
 
 The deb installs Odoo into /usr/lib/python3/dist-packages/odoo — it is
@@ -458,7 +471,7 @@ something. Give the instance's own role a password instead.
 
 **Two instances, one database (the cutover window).** Running the venv and the
 container at the same time is fine for a short verification, but only with the
-newcomer's cron threads at zero (`MAX_CRON_THREADS=0` in the dokku app): two
+newcomer's cron threads at zero (`MAX_CRON_THREADS=0` on the new instance): two
 copies of the same `ir.cron` double-send mail and can transmit fiscal documents
 twice. Do **not** use a `DISABLE_CRONS`-style switch that runs
 `UPDATE ir_cron SET active=false` — that mutates the customer's database and
